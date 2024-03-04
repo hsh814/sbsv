@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sbsv"
+version = "0.0.1"
+authors = [
+  { name="Seungheon Han", email="shhan814@gmail.com" },
+]
+description = "SBSV: Square Brackets Separated Values"
+readme = "README.md"
+requires-python = ">=3.6"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/hsh814/sbsv"
+Issues = "https://github.com/hsh814/sbsv/issues"
