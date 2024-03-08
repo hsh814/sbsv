@@ -69,9 +69,51 @@ Regular log file may contain unnecessary data. You can specify parser to ignore 
 parser.add_schema("[$ignore] [$ignore] [necessary] [from] [this: str]")
 ```
 
+### Duplicating names
+Sometimes, you may want to use same name multiple times.
+```
+[my-schema] [node 1] [node 2] [node 3]
+```
+You can distinguish them using index.
+```python
+parser.add_schema("[my-schema] [node$0: int] [node$1: int] [node$2: int]")
+```
+
 ### Primitive types
 Primitive types are `str`, `int`, `float`, `bool`, `null`.
 
 ### Complex types
-You can use `list`.
+#### list
+```
+[data] [token] [id 2] [actual [some] [multiple] [tokens]]
+```
 
+```python
+parser.add_schema("[data] [token] [id: int] [actual: list[str]]")
+```
+
+#### obj
+```
+[car] [id 1] [data [speed 100] [power 2] [price 20000]]
+```
+```python
+parser.add_schema("[car] [id: int] [data: obj[speed: int, power: int, price: int]])
+```
+
+#### map
+```
+[map-example] [mymap [id: 1, name: alice, email: wd@email.com]]
+```
+```python
+parser.add_schema("[map-example] [mymap: map]")
+```
+
+#### nullable
+```
+[car] [id 1] [data [speed 100] [power 2] [price]]
+[car] [id] [data [speed 120] [power 3] [price 33000]]
+```
+
+```python
+parser.add_schema("[car] [id?: int] [data: obj[speed: int, power: int, price?: int]]")
+```
