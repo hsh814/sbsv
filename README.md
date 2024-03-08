@@ -1,4 +1,5 @@
 # SBSV: square bracket separated values
+A flexible, schema-based structured log data format.
 
 ## Install
 
