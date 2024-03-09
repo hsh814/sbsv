@@ -143,6 +143,11 @@ class parser:
     self.data = dict()
     self.schema = dict()
     self.ignore_unknown = ignore_unknown
+  # New parser with same schema
+  def clone(self) -> "parser":
+    result = parser(self.ignore_unknown)
+    result.schema = self.schema.copy()
+    return result
   def parse_schema_name(self, line: str) -> str:
     tokens = lexer.tokenize(line)
     if len(tokens) == 0:
