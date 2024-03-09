@@ -121,3 +121,15 @@ parser.add_schema("[map-example] [mymap: map]")
 ```python
 parser.add_schema("[car] [id?: int] [data: obj[speed: int, power: int, price?: int]]")
 ```
+
+
+## Contribute
+```shell
+python3 -m pip install --upgrade pip
+python3 -m pip install black
+```
+You should run `black` linter before commit.
+```shell
+python3 -m black .
+```
+
