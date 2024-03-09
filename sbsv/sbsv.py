@@ -117,16 +117,29 @@ class Schema:
         continue
       # Normal schema
       self.schema.append(SbsvDataType(key, value))
-  def parse(self, s: str) -> Dict[str, Any]:
+  @staticmethod
+  def preprocess(line: str) -> Tuple[str, List[str]]:
+    tokens = lexer.tokenize(line)
+    name: str = None
+    data: List[str] = list()
+    may_have_sub_schema = True
+    for i in range(len(tokens)):
+      key, value = lexer.token_split_default(tokens[i])
+      if key != "" and value == "" and may_have_sub_schema:
+        if name is None:
+          name = key
+        else:
+          name = f"{name}${key}"
+      else:
+        may_have_sub_schema = False
+        data.append(tokens[i])
+    return name, data
+  def parse(self, tokens: List[str]) -> Dict[str, Any]:
     result = dict()
-    tokens = lexer.tokenize(s)
-    if len(tokens) <= 1:
+    if len(tokens) < len(self.schema):
       raise ValueError("Invalid data: too short")
-    name = tokens[0]
-    if name != self.name:
-      raise ValueError("Invalid data: name mismatch")
-    for i in range(1, len(tokens)):
-      schema_type = self.schema[i - 1]
+    for i in range(len(self.schema)):
+      schema_type = self.schema[i]
       key, value = lexer.token_split_default(tokens[i])
       if key == "":
         raise ValueError("Invalid data: empty name")
@@ -139,7 +152,7 @@ class parser:
   data: dict
   schema: Dict[str, Schema]
   ignore_unknown: bool
-  def __init__(self, ignore_unknown: bool = False):
+  def __init__(self, ignore_unknown: bool = True):
     self.data = dict()
     self.schema = dict()
     self.ignore_unknown = ignore_unknown
@@ -148,31 +161,26 @@ class parser:
     result = parser(self.ignore_unknown)
     result.schema = self.schema.copy()
     return result
-  def parse_schema_name(self, line: str) -> str:
-    tokens = lexer.tokenize(line)
-    if len(tokens) == 0:
-      raise ValueError("Invalid schema: empty")
-    return tokens[0]
-  def match_schema(self, line: str) -> Schema:
-    name = self.parse_schema_name(line)
+  def match_schema(self, line: str) -> Tuple[Schema, List[str]]:
+    name, value = Schema.preprocess(line)
     if name not in self.schema:
       if self.ignore_unknown:
-        return None
+        return None, None
       raise ValueError(f"Schema not found: {name}")
-    return self.schema[name]
+    return self.schema[name], value
   def add_schema(self, schema: str):
     # 1. tokenize
     sc = Schema(schema)
     self.schema[sc.name] = sc
     self.data[sc.name] = list()
-  def append_row(self, schema: Schema, row: Dict[str, Any]):
+  def append_row_to_data(self, schema: Schema, row: Dict[str, Any]):
     self.data[schema.name].append(row)
   def parse_line(self, line: str):
-    sc = self.match_schema(line)
+    sc, tokens = self.match_schema(line)
     if sc is None:
       return
-    row = sc.parse(line)
-    self.append_row(sc, row)
+    row = sc.parse(tokens)
+    self.append_row_to_data(sc, row)
   def load(self, fp: TextIO) -> dict:
     return self.loads(fp.read())
   def loads(self, s: str) -> dict:
