@@ -61,6 +61,7 @@ But if you add sub schema, you cannot add new schema with same schema name witho
 ```
 
 ### Ignore
+- [ ] Not available yet
 ```
 [2024-03-04 13:22:56] [DEBUG] [necessary] [from] [this part]
 ```
@@ -71,6 +72,7 @@ parser.add_schema("[$ignore] [$ignore] [necessary] [from] [this: str]")
 ```
 
 ### Duplicating names
+- [ ] Not available yet
 Sometimes, you may want to use same name multiple times.
 ```
 [my-schema] [node 1] [node 2] [node 3]
@@ -84,6 +86,7 @@ parser.add_schema("[my-schema] [node$0: int] [node$1: int] [node$2: int]")
 Primitive types are `str`, `int`, `float`, `bool`, `null`.
 
 ### Complex types
+- [ ] Not available yet
 #### list
 ```
 [data] [token] [id 2] [actual [some] [multiple] [tokens]]
