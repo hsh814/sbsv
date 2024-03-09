@@ -12,4 +12,5 @@ class TestSchema(unittest.TestCase):
     parser.add_schema("[edge] [src: int] [dst: int] [value: int]")
     with open(TEST_FILE, 'r') as f:
       result = parser.load(f)
-    
+    self.assertEqual(len(result["node"]), 4)
+    self.assertEqual(len(result["edge"]), 5)
