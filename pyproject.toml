@@ -20,3 +20,8 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/hsh814/sbsv"
 Issues = "https://github.com/hsh814/sbsv/issues"
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
