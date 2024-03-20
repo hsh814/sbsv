@@ -4,7 +4,7 @@ A flexible, schema-based structured log data format.
 ## Install
 
 ```shell
-python3 -m pip install svsb
+python3 -m pip install sbsv
 ```
 
 ## Use
@@ -133,3 +133,7 @@ You should run `black` linter before commit.
 python3 -m black .
 ```
 
+Before implementing new features or fixing bugs, add new tests in `tests/`.
+```shell
+python3 -m unittest
+```
