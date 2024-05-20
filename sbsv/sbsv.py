@@ -168,11 +168,13 @@ class Schema:
 
 class parser:
     data: dict
+    result: dict
     schema: Dict[str, Schema]
     ignore_unknown: bool
 
     def __init__(self, ignore_unknown: bool = True):
         self.data = dict()
+        self.result = dict()
         self.schema = dict()
         self.ignore_unknown = ignore_unknown
 
@@ -196,6 +198,22 @@ class parser:
         self.schema[sc.name] = sc
         self.data[sc.name] = list()
 
+    def post_process(self):
+        for key in self.data:
+            if "$" in key:
+                tokens = key.split("$")
+                tmp_root = self.result
+                final_token = tokens[-1]
+                for i in range(len(tokens)):
+                    if i == len(tokens) - 1:
+                        break
+                    if tokens[i] not in tmp_root:
+                        tmp_root[tokens[i]] = dict()
+                    tmp_root = tmp_root[tokens[i]]
+                tmp_root[final_token] = self.data[key]
+            else:
+                self.result[key] = self.data[key]
+
     def append_row_to_data(self, schema: Schema, row: Dict[str, Any]):
         self.data[schema.name].append(row)
 
@@ -215,4 +233,5 @@ class parser:
             if len(line) == 0 or line.startswith("#"):
                 continue
             self.parse_line(line)
-        return self.data
+        self.post_process()
+        return self.result
