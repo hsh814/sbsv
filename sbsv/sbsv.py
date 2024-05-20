@@ -117,18 +117,13 @@ class Schema:
         if len(tokens) <= 1:
             raise ValueError("Invalid schema: too short")
         self.name = tokens[0]
-        may_have_sub_schema = True
         for i in range(1, len(tokens)):
             key, value = lexer.token_split_default(tokens[i])
             if key == "":
                 raise ValueError("Invalid schema: empty name")
             # Sub schema
             if value == "":
-                if may_have_sub_schema:
-                    self.name = f"{self.name}${key}"
-                    may_have_sub_schema = False
-                else:
-                    raise ValueError("Invalid schema: empty value")
+                self.name = f"{self.name}${key}"
                 continue
             # Normal schema
             self.schema.append(SbsvDataType(key, value))

@@ -137,3 +137,9 @@ Before implementing new features or fixing bugs, add new tests in `tests/`.
 ```shell
 python3 -m unittest
 ```
+
+Build and update
+```shell
+python3 -m build
+python3 -m twine upload dist/*
+```
