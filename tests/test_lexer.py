@@ -34,3 +34,11 @@ class TestLexer(unittest.TestCase):
         self.assertEqual(result["mem"]["neg"][0]["id"], "should escape ] this")
         self.assertEqual(result["mem"]["pos"][0]["id"], "should escape ]]\\ this")
         self.assertEqual(result["mem"]["pos"][0]["file"], '/path/to/file"')
+
+    def test_lexer_remove(self):
+        parser = sbsv.parser()
+        parser.add_schema("[mem] [neg] [id: str] [file: str]")
+        test_str = "[mem] [neg] id is [id myid] and file is [file myfile!]\n"
+        result = parser.loads(test_str)
+        self.assertEqual(result["mem"]["neg"][0]["id"], "myid")
+        self.assertEqual(result["mem"]["neg"][0]["file"], "myfile!")
