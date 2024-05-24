@@ -1,0 +1,2 @@
+[mem] [neg] [id should escape \] this] [file /path/to/file]
+[mem] [pos] [seed 123] [id should escape \]\]\ this] [file /path/to/file\"]

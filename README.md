@@ -123,6 +123,11 @@ parser.add_schema("[car] [id?: int] [data: obj[speed: int, power: int, price?: i
 ```
 
 
+### Escape sequences for string
+```
+[car] [id 1] [name "\[name with square bracket\]"]
+```
+
 ## Contribute
 ```shell
 python3 -m pip install --upgrade pip
