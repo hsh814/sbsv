@@ -6,29 +6,64 @@ class lexer:
         pass
 
     @staticmethod
+    def replace_escape_sequences(s: str) -> str:
+        escape_dict = {
+            "\\b": "\b",
+            "\\t": "\t",
+            "\\n": "\n",
+            "\\f": "\f",
+            "\\r": "\r",
+            '\\"': '"',
+            "\\/": "/",
+            "\\\\": "\\",
+            "\\[": "[",
+            "\\]": "]",
+        }
+        for key, value in escape_dict.items():
+            s = s.replace(key, value)
+        return s
+
+    @staticmethod
+    def update_token(result: List[str], current: str, should_replace: bool):
+        current = current.strip()
+        if should_replace:
+            current = lexer.replace_escape_sequences(current)
+        result.append(current)
+
+    @staticmethod
     def tokenize(line: str) -> List[str]:
         result = list()
         level = 0
         current = ""
+        escape = False
+        should_replace = False
         for c in range(len(line)):
             char = line[c]
+            if escape:
+                escape = False
+                current += "\\" + char
+                continue
+            if char == "\\":
+                escape = True
+                should_replace = True
+                continue
             if char == "[":
                 level += 1
                 if level == 1:
                     if len(current.strip()) > 0:
-                        result.append(current.strip())
+                        lexer.update_token(result, current, should_replace)
+                        should_replace = False
                     current = ""
                     continue
             elif char == "]":
                 level -= 1
                 if level == 0:
-                    result.append(current.strip())
+                    lexer.update_token(result, current, should_replace)
+                    should_replace = False
                     current = ""
                     continue
             if level > 0:
                 current += char
-        if len(current.strip()) > 0:
-            result.append(current.strip())
         return result
 
     @staticmethod
