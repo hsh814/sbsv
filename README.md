@@ -72,14 +72,15 @@ parser.add_schema("[$ignore] [$ignore] [necessary] [from] [this: str]")
 ```
 
 ### Duplicating names
-- [ ] Not available yet
-Sometimes, you may want to use same name multiple times.
+Sometimes, you may want to use same name multiple times. You can distinguish them using additional tags.
 ```
 [my-schema] [node 1] [node 2] [node 3]
 ```
-You can distinguish them using index.
+Tag is added like `node$some-tag`, after `$`. Data should not contain tags: they will be only used in schema.
 ```python
 parser.add_schema("[my-schema] [node$0: int] [node$1: int] [node$2: int]")
+result = parser.loads("[my-schema] [node 1] [node 2] [node 3]\n")
+result["my-schema"]["node$0"] == 1
 ```
 
 ### Primitive types

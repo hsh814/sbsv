@@ -86,12 +86,18 @@ class lexer:
 
 class SbsvDataType:
     name: str
+    name_with_tag: str
     type: str
     converter: Callable[[str], Any]
     sub_type: List["SbsvDataType"]
 
-    def __init__(self, name: str, type: str):
-        self.name = name
+    def __init__(self, name_with_tag: str, type: str):
+        self.name_with_tag = name_with_tag
+        if "$" in self.name_with_tag:
+            tokens = self.name_with_tag.split("$")
+            self.name = tokens[0]
+        else:
+            self.name = name_with_tag
         self.type = type
         self.converter = self.add_converter(type)
         self.sub_type = list()
@@ -129,6 +135,9 @@ class SbsvDataType:
             return self.converter(value)
         return value
 
+    def key(self) -> str:
+        return self.name_with_tag
+
 
 class SbsvData:
     name: str
@@ -160,6 +169,7 @@ class Schema:
             if value == "":
                 self.name = f"{self.name}${key}"
                 continue
+            key, value = lexer.token_split_schema(tokens[i])
             # Normal schema
             self.schema.append(SbsvDataType(key, value))
 
@@ -192,7 +202,7 @@ class Schema:
                 raise ValueError("Invalid data: empty name")
             if value == "":
                 raise ValueError("Invalid data: empty value")
-            result[key] = schema_type.convert(value)
+            result[schema_type.key()] = schema_type.convert(value)
         return result
 
 
@@ -248,6 +258,9 @@ class parser:
         self.data[schema.name].append(row)
 
     def parse_line(self, line: str):
+        line = line.strip()
+        if len(line) == 0 or line.startswith("#"):
+            return
         sc, tokens = self.match_schema(line)
         if sc is None:
             return
@@ -255,13 +268,13 @@ class parser:
         self.append_row_to_data(sc, row)
 
     def load(self, fp: TextIO) -> dict:
-        return self.loads(fp.read())
+        for line in fp.readlines():
+            self.parse_line(line)
+        self.post_process()
+        return self.result
 
     def loads(self, s: str) -> dict:
         for line in s.split("\n"):
-            line = line.strip()
-            if len(line) == 0 or line.startswith("#"):
-                continue
             self.parse_line(line)
         self.post_process()
         return self.result
