@@ -88,10 +88,14 @@ class SbsvDataType:
     name: str
     name_with_tag: str
     type: str
+    nullable: bool
     converter: Callable[[str], Any]
     sub_type: List["SbsvDataType"]
 
     def __init__(self, name_with_tag: str, type: str):
+        self.nullable = name_with_tag.endswith("?")
+        if self.nullable:
+            name_with_tag = name_with_tag[:-1]
         self.name_with_tag = name_with_tag
         if "$" in self.name_with_tag:
             tokens = self.name_with_tag.split("$")
@@ -131,12 +135,17 @@ class SbsvDataType:
         return None
 
     def convert(self, value: str) -> Any:
+        if value == "" and self.nullable:
+            return None
         if self.converter is not None:
             return self.converter(value)
         return value
 
     def key(self) -> str:
         return self.name_with_tag
+
+    def check_nullable(self) -> bool:
+        return self.nullable
 
 
 class SbsvData:
@@ -200,7 +209,7 @@ class Schema:
             key, value = lexer.token_split_default(tokens[i])
             if key == "":
                 raise ValueError("Invalid data: empty name")
-            if value == "":
+            if value == "" and not schema_type.check_nullable():
                 raise ValueError("Invalid data: empty value")
             result[schema_type.key()] = schema_type.convert(value)
         return result
@@ -268,7 +277,7 @@ class parser:
         self.append_row_to_data(sc, row)
 
     def load(self, fp: TextIO) -> dict:
-        for line in fp.readlines():
+        for line in fp:
             self.parse_line(line)
         self.post_process()
         return self.result

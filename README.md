@@ -87,6 +87,17 @@ result["my-schema"]["node$0"] == 1
 Primitive types are `str`, `int`, `float`, `bool`, `null`.
 
 ### Complex types
+
+#### nullable
+```
+[car] [id 1] [speed 100] [power 2] [price]
+[car] [id] [speed 120] [power 3] [price 33000]
+```
+
+```python
+parser.add_schema("[car] [id?: int] [data: obj[speed: int, power: int, price?: int]]")
+```
+
 - [ ] Not available yet
 #### list
 ```
@@ -111,16 +122,6 @@ parser.add_schema("[car] [id: int] [data: obj[speed: int, power: int, price: int
 ```
 ```python
 parser.add_schema("[map-example] [mymap: map]")
-```
-
-#### nullable
-```
-[car] [id 1] [data [speed 100] [power 2] [price]]
-[car] [id] [data [speed 120] [power 3] [price 33000]]
-```
-
-```python
-parser.add_schema("[car] [id?: int] [data: obj[speed: int, power: int, price?: int]]")
 ```
 
 
