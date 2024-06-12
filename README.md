@@ -85,11 +85,26 @@ result["my-schema"][0]["node$0"] == 1
 
 ### Name matching
 If there are additional element in data, it will be ignored.
+The sequence of the names should not be changed.
 ```python
 parser.add_schema("[my-schema] [node: int] [value: int]")
 data = "[my-schema] [node 1] [unknown element] [value 3]\n"
 result = parser.loads(data)
 result["my-schema"][0] == { "node": 1, "value": 3 }
+```
+
+### Ordering
+You may need a global ordering of each line.
+```python
+parser.add_schema("[data] [string] [id: int] [actual: str]")
+parser.add_schema("[data] [token] [id: int] [actual: list[str]]")
+result = parser.load(f)
+# This returns all elements in order
+elems_all = parser.get_result_in_order()
+# This returns elements matching names in order
+# If it contains sub-schema, use $
+# For example, [data] [string] [id: int] -> "data$string"
+elems = parser.get_result_in_order(["data$string", "data$token"])
 ```
 
 ### Primitive types

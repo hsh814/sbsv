@@ -85,6 +85,35 @@ class lexer:
         return lexer.token_split(token, ":")
 
 
+class SbsvData:
+    schema_name: str
+    data: Dict[str, Any]
+    id: int
+
+    def __init__(self, schema_name: str, data: Dict[str, Any], id: int):
+        self.schema_name = schema_name
+        self.data = data
+        self.id = id
+
+    def __getitem__(self, key: str) -> Any:
+        return self.data[key]
+
+    def __setitem__(self, key: str, value: Any):
+        self.data[key] = value
+
+    def __delitem__(self, key: str):
+        del self.data[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.data
+
+    def get_id(self) -> int:
+        return self.id
+
+    def get_name(self) -> str:
+        return self.schema_name
+
+
 class SbsvDataType:
     name: str
     name_with_tag: str
@@ -156,11 +185,13 @@ class Schema:
     original: str
     name: str
     schema: List[SbsvDataType]
+    data: List[SbsvData]
 
     def __init__(self, s: str):
         self.original = s
         self.name = ""
         self.schema = list()
+        self.data = list()
         tokens = lexer.tokenize(s)
         if len(tokens) <= 1:
             raise ValueError("Invalid schema: too short")
@@ -203,6 +234,7 @@ class Schema:
         for token in tokens:
             q.put(token)
         for schema_type in self.schema:
+            done = False
             while not q.empty():
                 elem = q.get()
                 key, value = lexer.token_split_default(elem)
@@ -213,18 +245,27 @@ class Schema:
                 if value == "" and not schema_type.check_nullable():
                     raise ValueError("Invalid data: empty value")
                 result[schema_type.key()] = schema_type.convert(value)
+                done = True
                 break
+            if not done:
+                raise ValueError("Invalid data: missing key")
         return result
+
+    def get_data(self) -> List[Dict[str, Any]]:
+        return self.data
+
+    def append_data(self, data: SbsvData):
+        self.data.append(data)
 
 
 class parser:
-    data: dict
+    data: List[SbsvData]
     result: dict
     schema: Dict[str, Schema]
     ignore_unknown: bool
 
     def __init__(self, ignore_unknown: bool = True):
-        self.data = dict()
+        self.data = list()
         self.result = dict()
         self.schema = dict()
         self.ignore_unknown = ignore_unknown
@@ -234,6 +275,9 @@ class parser:
         result = parser(self.ignore_unknown)
         result.schema = self.schema.copy()
         return result
+
+    def get_global_id(self) -> int:
+        return len(self.data)
 
     def match_schema(self, line: str) -> Tuple[Schema, List[str]]:
         name, value = Schema.preprocess(line)
@@ -247,10 +291,9 @@ class parser:
         # 1. tokenize
         sc = Schema(schema)
         self.schema[sc.name] = sc
-        self.data[sc.name] = list()
 
     def post_process(self):
-        for key in self.data:
+        for key in self.schema:
             if "$" in key:
                 tokens = key.split("$")
                 tmp_root = self.result
@@ -261,12 +304,14 @@ class parser:
                     if tokens[i] not in tmp_root:
                         tmp_root[tokens[i]] = dict()
                     tmp_root = tmp_root[tokens[i]]
-                tmp_root[final_token] = self.data[key]
+                tmp_root[final_token] = self.schema[key].get_data()
             else:
-                self.result[key] = self.data[key]
+                self.result[key] = self.schema[key].get_data()
 
     def append_row_to_data(self, schema: Schema, row: Dict[str, Any]):
-        self.data[schema.name].append(row)
+        sbsv_data = SbsvData(schema.name, row, self.get_global_id())
+        self.data.append(sbsv_data)
+        schema.append_data(sbsv_data)
 
     def parse_line(self, line: str):
         line = line.strip()
@@ -289,3 +334,17 @@ class parser:
             self.parse_line(line)
         self.post_process()
         return self.result
+
+    def get_result(self) -> dict:
+        return self.result
+
+    def get_result_in_order(self, schemas: List[str] = None) -> List[SbsvData]:
+        if schemas is None:
+            return self.data
+        result = list()
+        schema_set = set(schemas)
+        for elem in self.data:
+            if elem.get_name() not in schema_set:
+                continue
+            result.append(elem)
+        return result
