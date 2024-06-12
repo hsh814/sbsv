@@ -24,7 +24,7 @@ class TestParser(unittest.TestCase):
             "[mem] [both] [id$neg: str] [file$neg: str] [id$pos: str] [file$pos: str]"
         )
         test_str = "[mem] [neg] [id myid] [this is unknown] [file myfile!]\n"
-        test_str += "[mem] [both] [id myid] [file myfile!] [id myid2] [file myfile2!]\n"
+        test_str += "[mem] [both] [id myid] [file myfile!] [id myid2] [file myfile2!] [at the end]\n"
         test_str += "[mem] [both] [id myid] [fake id] [file myfile!] [my-id hehe] [id myid3] [file myfile3!]\n"
         result = parser.loads(test_str)
         self.assertEqual(result["mem"]["neg"][0]["id"], "myid")

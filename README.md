@@ -80,7 +80,16 @@ Tag is added like `node$some-tag`, after `$`. Data should not contain tags: they
 ```python
 parser.add_schema("[my-schema] [node$0: int] [node$1: int] [node$2: int]")
 result = parser.loads("[my-schema] [node 1] [node 2] [node 3]\n")
-result["my-schema"]["node$0"] == 1
+result["my-schema"][0]["node$0"] == 1
+```
+
+### Name matching
+If there are additional element in data, it will be ignored.
+```python
+parser.add_schema("[my-schema] [node: int] [value: int]")
+data = "[my-schema] [node 1] [unknown element] [value 3]\n"
+result = parser.loads(data)
+result["my-schema"][0] == { "node": 1, "value": 3 }
 ```
 
 ### Primitive types

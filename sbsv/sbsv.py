@@ -1,4 +1,5 @@
 from typing import List, Dict, Tuple, Set, TextIO, Callable, Any
+import queue
 
 
 class lexer:
@@ -147,14 +148,8 @@ class SbsvDataType:
     def check_nullable(self) -> bool:
         return self.nullable
 
-
-class SbsvData:
-    name: str
-    type: str
-
-    def __init__(self, name: str, type: str):
-        self.name = name
-        self.type = type
+    def check_name(self, name: str) -> bool:
+        return self.name == name
 
 
 class Schema:
@@ -204,14 +199,21 @@ class Schema:
         result = dict()
         if len(tokens) < len(self.schema):
             raise ValueError("Invalid data: too short")
-        for i in range(len(self.schema)):
-            schema_type = self.schema[i]
-            key, value = lexer.token_split_default(tokens[i])
-            if key == "":
-                raise ValueError("Invalid data: empty name")
-            if value == "" and not schema_type.check_nullable():
-                raise ValueError("Invalid data: empty value")
-            result[schema_type.key()] = schema_type.convert(value)
+        q = queue.Queue(len(tokens))
+        for token in tokens:
+            q.put(token)
+        for schema_type in self.schema:
+            while not q.empty():
+                elem = q.get()
+                key, value = lexer.token_split_default(elem)
+                if key == "":
+                    raise ValueError("Invalid data: empty name")
+                if not schema_type.check_name(key):
+                    continue
+                if value == "" and not schema_type.check_nullable():
+                    raise ValueError("Invalid data: empty value")
+                result[schema_type.key()] = schema_type.convert(value)
+                break
         return result
 
 
