@@ -107,6 +107,12 @@ class SbsvData:
     def __contains__(self, key: str) -> bool:
         return key in self.data
 
+    def __str__(self) -> str:
+        return f"[schema {self.schema_name}] [id {self.id}] [data {self.data}]"
+
+    def __repr__(self) -> str:
+        return f"SbsvData({self.__str__()})"
+
     def get_id(self) -> int:
         return self.id
 
@@ -251,7 +257,7 @@ class Schema:
                 raise ValueError("Invalid data: missing key")
         return result
 
-    def get_data(self) -> List[Dict[str, Any]]:
+    def get_data(self) -> List[SbsvData]:
         return self.data
 
     def append_data(self, data: SbsvData):
@@ -341,10 +347,19 @@ class parser:
     def get_result_in_order(self, schemas: List[str] = None) -> List[SbsvData]:
         if schemas is None:
             return self.data
-        result = list()
-        schema_set = set(schemas)
-        for elem in self.data:
-            if elem.get_name() not in schema_set:
+        pq = queue.PriorityQueue()
+        for schema in schemas:
+            if schema not in self.schema:
+                raise ValueError(f"Schema not found: {schema}")
+            cur_schema = self.schema[schema]
+            if len(cur_schema.get_data()) == 0:
                 continue
-            result.append(elem)
+            pq.put((cur_schema.get_data()[0].get_id(), cur_schema, 0))
+        result = list()
+        while not pq.empty():
+            value, cur_schema, elem = pq.get()
+            result.append(cur_schema.get_data()[elem])
+            if elem < len(cur_schema.get_data()) - 1:
+                next_value = cur_schema.get_data()[elem + 1].get_id()
+                pq.put((next_value, cur_schema, elem + 1))
         return result
