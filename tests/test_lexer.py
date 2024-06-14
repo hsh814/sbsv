@@ -42,3 +42,17 @@ class TestLexer(unittest.TestCase):
         result = parser.loads(test_str)
         self.assertEqual(result["mem"]["neg"][0]["id"], "myid")
         self.assertEqual(result["mem"]["neg"][0]["file"], "myfile!")
+
+    def test_escpae(self):
+        self.assertEqual(sbsv.escape_str("this is a test"), "this is a test")
+        self.assertEqual(sbsv.escape_str("this is a test]"), "this is a test\\]")
+        self.assertEqual(sbsv.escape_str("this is a test\\"), "this is a test\\\\")
+        self.assertEqual(sbsv.escape_str(",|]][[]]"), "\\,|\\]\\]\\[\\[\\]\\]")
+        self.assertEqual(sbsv.unescape_str("this is a test"), "this is a test")
+        self.assertEqual(sbsv.unescape_str("this is a test\\]"), "this is a test]")
+        self.assertEqual(sbsv.unescape_str("this is a test\\\\"), "this is a test\\")
+        self.assertEqual(sbsv.unescape_str("\\,|\\]\\]\\[\\[\\]"), ",|]][[]")
+        self.assertEqual(
+            sbsv.unescape_str(sbsv.escape_str("should escape ]]\\ this")),
+            "should escape ]]\\ this",
+        )

@@ -1,5 +1,6 @@
 from typing import List, Dict, Tuple, Set, TextIO, Callable, Any
 import queue
+from .utils import get_schema_id, get_schema_name_list, escape_str, unescape_str
 
 
 class lexer:
@@ -7,28 +8,10 @@ class lexer:
         pass
 
     @staticmethod
-    def replace_escape_sequences(s: str) -> str:
-        escape_dict = {
-            "\\b": "\b",
-            "\\t": "\t",
-            "\\n": "\n",
-            "\\f": "\f",
-            "\\r": "\r",
-            '\\"': '"',
-            "\\/": "/",
-            "\\\\": "\\",
-            "\\[": "[",
-            "\\]": "]",
-        }
-        for key, value in escape_dict.items():
-            s = s.replace(key, value)
-        return s
-
-    @staticmethod
     def update_token(result: List[str], current: str, should_replace: bool):
         current = current.strip()
         if should_replace:
-            current = lexer.replace_escape_sequences(current)
+            current = unescape_str(current)
         result.append(current)
 
     @staticmethod

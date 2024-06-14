@@ -25,7 +25,7 @@ parser.add_schema("[meta-data] [id: int] [format: str]")
 parser.add_schema("[data] [string] [id: int] [actual: str]")
 parser.add_schema("[data] [token] [id: int] [actual: list[str]]")
 parser.add_schema("[stat] [rows: int]")
-with open("testfile.svsb", "r") as f:
+with open("testfile.sbsv", "r") as f:
   result = parser.load(f)
 ```
 
@@ -106,6 +106,13 @@ elems_all = parser.get_result_in_order()
 # For example, [data] [string] [id: int] -> "data$string"
 elems = parser.get_result_in_order(["data$string", "data$token"])
 ```
+Or, you can get schema id (`data$string` and `data$token`) like this:
+```python
+sbsv.get_schema_id("node") == "node"
+sbsv.get_schema_id("data", "string") == "data$string"
+# this is equal to 
+sbsv.get_schema_id("data", "string") == '$'.join(["data", "string"])
+```
 
 ### Primitive types
 Primitive types are `str`, `int`, `float`, `bool`, `null`.
@@ -152,7 +159,9 @@ parser.add_schema("[map-example] [mymap: map]")
 ### Escape sequences for string
 ```
 [car] [id 1] [name "\[name with square bracket\]"]
+f"[car] [id {id}] [name {sbsv.escape_str("[name with square bracket]")}]"
 ```
+Use `sbsv.escape_str()` to get escaped string and `sbsv.unescape_str()` to get original string from escaped string.
 
 ## Contribute
 ```shell

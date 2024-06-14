@@ -37,7 +37,9 @@ class TestId(unittest.TestCase):
         parser.add_schema("[graph] [edge] [src: int] [dst: int] [value: int]")
         with open(test_file, "r") as f:
             result = parser.load(f)
-        elems = parser.get_result_in_order(["graph$node", "graph$edge"])
+        elems = parser.get_result_in_order(
+            [sbsv.get_schema_id("graph", "node"), sbsv.get_schema_id("graph", "edge")]
+        )
         self.assertEqual(len(result["graph"]["node"]), 4)
         self.assertEqual(len(result["graph"]["edge"]), 5)
         self.assertEqual(len(elems), 9)
