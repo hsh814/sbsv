@@ -133,13 +133,20 @@ parser.add_schema("[data] [begin]")
 parser.add_schema("[data] [end]")
 parser.add_schema("[block] [data: int]")
 # Second, add group name, group start, group end
-parser.grouping("[data]", "[data] [begin]", "[data] [end]")
+parser.add_group("data", "data$begin", "data$end")
 parser.load(sbsv_file)
 # Iterate groups
 for block in parser.iter_group("data"):
   print("group start")
   for block_data in block:
-    print(block_data["block"]["data"])
+    if block_data.schema_name == "block":
+      print(block_data["data"])
+# Or, use index
+block_indices = parser.get_group_index("data")
+for index in block_indices:
+  print("use index")
+  for block in parser.get_result_by_index(self, "block", index):
+    print(block["data"])
 ```
 Output:
 ```
@@ -147,6 +154,12 @@ group start
 1
 2
 group start
+3
+4
+use index
+1
+2
+use index
 3
 4
 ```

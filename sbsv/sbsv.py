@@ -3,6 +3,7 @@ import queue
 from .utils import get_schema_id, get_schema_name_list, escape_str, unescape_str
 import enum
 
+
 class TokenType(enum.Enum):
     LEFT_BRACKET = 1
     RIGHT_BRACKET = 2
@@ -14,6 +15,7 @@ class TokenType(enum.Enum):
     NULL = 8
     IDENTIFIER = 9
     EOL = 10
+
 
 class lexer:
     def __init__(self):
@@ -261,6 +263,9 @@ class Schema:
 
 class parser:
     data: List[SbsvData]
+    groups: Dict[str, Tuple[Schema, Schema, List[Tuple[int, int]]]]
+    group_start: Dict[str, int]
+    group_end: Dict[str, str]
     result: dict
     schema: Dict[str, Schema]
     ignore_unknown: bool
@@ -269,12 +274,16 @@ class parser:
         self.data = list()
         self.result = dict()
         self.schema = dict()
+        self.groups = dict()
+        self.group_start = dict()
+        self.group_end = dict()
         self.ignore_unknown = ignore_unknown
 
     # New parser with same schema
     def clone(self) -> "parser":
         result = parser(self.ignore_unknown)
         result.schema = self.schema.copy()
+        result.groups = self.groups.copy()
         return result
 
     def get_global_id(self) -> int:
@@ -293,6 +302,26 @@ class parser:
         sc = Schema(schema)
         self.schema[sc.name] = sc
 
+    def add_group(self, group_name: str, start_schema: str, end_schema: str):
+        self.groups[group_name] = (
+            self.schema[start_schema],
+            self.schema[end_schema],
+            list(),
+        )
+        self.group_start[start_schema] = -1
+        self.group_end[end_schema] = group_name
+
+    def get_group_index(self, group_name: str) -> List[Tuple[int, int]]:
+        result = list()
+        for start, end in self.groups[group_name][2]:
+            result.append((start, end))
+        return result
+
+    def iter_group(self, group_name: str):
+        start_schema, end_schema, indices = self.groups[group_name]
+        for start, end in indices:
+            yield self.data[start:end]
+
     def post_process(self):
         for key in self.schema:
             if "$" in key:
@@ -310,9 +339,21 @@ class parser:
                 self.result[key] = self.schema[key].get_data()
 
     def append_row_to_data(self, schema: Schema, row: Dict[str, Any]):
-        sbsv_data = SbsvData(schema.name, row, self.get_global_id())
-        self.data.append(sbsv_data)
+        cur_id = self.get_global_id()
+        sbsv_data = SbsvData(schema.name, row, cur_id)
         schema.append_data(sbsv_data)
+        self.data.append(sbsv_data)
+        if schema.name in self.group_start:
+            if (
+                self.group_start[schema.name] < 0
+            ):  # Else, it did not meet the end schema
+                self.group_start[schema.name] = cur_id
+        if schema.name in self.group_end:
+            group_name = self.group_end[schema.name]
+            group = self.groups[group_name]
+            start_index = self.group_start[group[0].name]
+            group[2].append((start_index, cur_id))
+            self.group_start[group[0].name] = -1
 
     def parse_line(self, line: str):
         line = line.strip()
@@ -358,3 +399,42 @@ class parser:
                 next_value = cur_schema.get_data()[elem + 1].get_id()
                 pq.put((next_value, cur_schema, elem + 1))
         return result
+
+    def get_result_by_index(
+        self, schema: str, index: Tuple[int, int]
+    ) -> List[SbsvData]:
+        if schema not in self.schema:
+            raise ValueError(f"Schema not found: {schema}")
+
+        data = self.schema[schema].get_data()
+
+        # Binary search for the start index
+        start = 0
+        end = len(data) - 1
+        start_index = -1
+
+        while start <= end:
+            mid = (start + end) // 2
+            if data[mid].get_id() >= index[0]:
+                start_index = mid
+                end = mid - 1
+            else:
+                start = mid + 1
+
+        if start_index == -1:
+            return []
+
+        # Binary search for the end index
+        start = start_index
+        end = len(data) - 1
+        end_index = -1
+
+        while start <= end:
+            mid = (start + end) // 2
+            if data[mid].get_id() < index[1]:
+                end_index = mid
+                start = mid + 1
+            else:
+                end = mid - 1
+
+        return data[start_index : end_index + 1]

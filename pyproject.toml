@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sbsv"
-version = "0.0.10"
+version = "0.1.0"
 authors = [
   { name="Seungheon Han", email="shhan814@gmail.com" },
 ]
@@ -25,3 +25,4 @@ Issues = "https://github.com/hsh814/sbsv/issues"
 line-length = 88
 target-version = ['py38']
 include = '\.pyi?$'
+exclude = '\.env'
