@@ -114,6 +114,45 @@ sbsv.get_schema_id("data", "string") == "data$string"
 sbsv.get_schema_id("data", "string") == '$'.join(["data", "string"])
 ```
 
+### Group
+```
+[data] [begin]
+[block] [data 1]
+[block] [data 2]
+[data] [end]
+[data] [begin]
+[block] [data 3]
+[block] [data 4]
+[data] [end]
+```
+You can group block 1, 2
+
+```python
+# First, add all to schema
+parser.add_schema("[data] [begin]")
+parser.add_schema("[data] [end]")
+parser.add_schema("[block] [data: int]")
+# Second, add group name, group start, group end
+parser.grouping("[data]", "[data] [begin]", "[data] [end]")
+parser.load(sbsv_file)
+# Iterate groups
+for block in parser.iter_group("data"):
+  print("group start")
+  for block_data in block:
+    print(block_data["block"]["data"])
+```
+Output:
+```
+group start
+1
+2
+group start
+3
+4
+```
+
+
+
 ### Primitive types
 Primitive types are `str`, `int`, `float`, `bool`, `null`.
 
