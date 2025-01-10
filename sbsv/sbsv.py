@@ -1,7 +1,19 @@
 from typing import List, Dict, Tuple, Set, TextIO, Callable, Any
 import queue
 from .utils import get_schema_id, get_schema_name_list, escape_str, unescape_str
+import enum
 
+class TokenType(enum.Enum):
+    LEFT_BRACKET = 1
+    RIGHT_BRACKET = 2
+    COLON = 3
+    COMMA = 4
+    STRING = 5
+    NUMBER = 6
+    BOOLEAN = 7
+    NULL = 8
+    IDENTIFIER = 9
+    EOL = 10
 
 class lexer:
     def __init__(self):
