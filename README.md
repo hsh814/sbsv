@@ -104,7 +104,8 @@ elems_all = parser.get_result_in_order()
 # This returns elements matching names in order
 # If it contains sub-schema, use $
 # For example, [data] [string] [id: int] -> "data$string"
-elems = parser.get_result_in_order(["data$string", "data$token"])
+elems = parser.get_result_in_order(["[data] [string]", "[data] [token]"])
+# You can also use ["data$string", "data$token"]
 ```
 Or, you can get schema id (`data$string` and `data$token`) like this:
 ```python
@@ -133,7 +134,7 @@ parser.add_schema("[data] [begin]")
 parser.add_schema("[data] [end]")
 parser.add_schema("[block] [data: int]")
 # Second, add group name, group start, group end
-parser.add_group("data", "data$begin", "data$end")
+parser.add_group("data", "[data] [begin]", "[data] [end]")
 parser.load(sbsv_file)
 # Iterate groups
 for block in parser.iter_group("data"):
@@ -145,7 +146,7 @@ for block in parser.iter_group("data"):
 block_indices = parser.get_group_index("data")
 for index in block_indices:
   print("use index")
-  for block in parser.get_result_by_index(self, "block", index):
+  for block in parser.get_result_by_index("[block]", index):
     print(block["data"])
 ```
 Output:
@@ -164,6 +165,60 @@ use index
 4
 ```
 
+You can use group without closing schema.
+```
+[group-wo-closing] [new-group a]
+[some] [data 9]
+[some] [data 8]
+[some] [data 7]
+[group-wo-closing] [new-group b]
+[some] [data 6]
+[some] [data 5]
+[group-wo-closing] [new-group c]
+[some] [data 4]
+```
+
+```python
+# First, add all to schema
+parser.add_schema("[group-wo-closing] [new-group: str]")
+parser.add_schema("[some] [data: int]")
+# Second, add group name, group start == group end
+parser.add_group("new-group", "[group-wo-closing]", "[group-wo-closing]")
+parser.load(sbsv_file)
+# Iterate groups
+for block in parser.iter_group("new-group"):
+  print("group start")
+  for block_data in block:
+    if block_data.schema_name == "some":
+      print(block_data["data"])
+# Or, use index
+block_indices = parser.get_group_index("new-group")
+for index in block_indices:
+  print("use index")
+  for block in parser.get_result_by_index("[some]", index):
+    print(block["data"])
+```
+Output
+```
+group start
+9
+8
+7
+group start
+6
+5
+group start
+4
+use index
+9
+8
+7
+use index
+6
+5
+use index
+4
+```
 
 
 ### Primitive types

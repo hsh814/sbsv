@@ -196,7 +196,7 @@ class Schema:
         self.schema = list()
         self.data = list()
         tokens = lexer.tokenize(s)
-        if len(tokens) <= 1:
+        if len(tokens) == 0:
             raise ValueError("Invalid schema: too short")
         self.name = tokens[0]
         for i in range(1, len(tokens)):
@@ -210,6 +210,10 @@ class Schema:
             key, value = lexer.token_split_schema(tokens[i])
             # Normal schema
             self.schema.append(SbsvDataType(key, value))
+
+    @staticmethod
+    def need_parsing(s: str) -> bool:
+        return s.startswith("[") and s.endswith("]")
 
     @staticmethod
     def preprocess(line: str) -> Tuple[str, List[str]]:
@@ -303,6 +307,11 @@ class parser:
         self.schema[sc.name] = sc
 
     def add_group(self, group_name: str, start_schema: str, end_schema: str):
+        if Schema.need_parsing(start_schema):
+            start_schema = Schema(start_schema).name
+        if Schema.need_parsing(end_schema):
+            end_schema = Schema(end_schema).name
+
         self.groups[group_name] = (
             self.schema[start_schema],
             self.schema[end_schema],
@@ -320,9 +329,20 @@ class parser:
     def iter_group(self, group_name: str):
         start_schema, end_schema, indices = self.groups[group_name]
         for start, end in indices:
-            yield self.data[start:end]
+            yield self.data[start : end + 1]
 
     def post_process(self):
+        # 1. Post process groups
+        for group in self.groups.values():
+            start_schema, end_schema, indices = group
+            if (
+                start_schema.name in self.group_start
+                and self.group_start[start_schema.name] >= 0
+            ):
+                group[2].append(
+                    (self.group_start[start_schema.name], len(self.data) - 1)
+                )
+        # 2. Post process schema
         for key in self.schema:
             if "$" in key:
                 tokens = key.split("$")
@@ -343,17 +363,21 @@ class parser:
         sbsv_data = SbsvData(schema.name, row, cur_id)
         schema.append_data(sbsv_data)
         self.data.append(sbsv_data)
-        if schema.name in self.group_start:
-            if (
-                self.group_start[schema.name] < 0
-            ):  # Else, it did not meet the end schema
-                self.group_start[schema.name] = cur_id
         if schema.name in self.group_end:
             group_name = self.group_end[schema.name]
             group = self.groups[group_name]
-            start_index = self.group_start[group[0].name]
-            group[2].append((start_index, cur_id))
-            self.group_start[group[0].name] = -1
+            start_schema = group[0].name
+            start_index = self.group_start[start_schema]
+            if start_index >= 0:
+                if start_schema == schema.name:
+                    group[2].append((start_index, cur_id - 1))
+                else:
+                    group[2].append((start_index, cur_id))
+                self.group_start[start_schema] = -1
+        if schema.name in self.group_start:
+            if self.group_start[schema.name] < 0:
+                # Else, it did not meet the end schema
+                self.group_start[schema.name] = cur_id
 
     def parse_line(self, line: str):
         line = line.strip()
@@ -385,6 +409,8 @@ class parser:
             return self.data
         pq = queue.PriorityQueue()
         for schema in schemas:
+            if Schema.need_parsing(schema):
+                schema = Schema(schema).name
             if schema not in self.schema:
                 raise ValueError(f"Schema not found: {schema}")
             cur_schema = self.schema[schema]
@@ -403,6 +429,8 @@ class parser:
     def get_result_by_index(
         self, schema: str, index: Tuple[int, int]
     ) -> List[SbsvData]:
+        if Schema.need_parsing(schema):
+            schema = Schema(schema).name
         if schema not in self.schema:
             raise ValueError(f"Schema not found: {schema}")
 
@@ -414,6 +442,12 @@ class parser:
         start_index = -1
 
         while start <= end:
+            if end - start < 8:
+                # Just use linear search
+                for i in range(start, end + 1):
+                    if data[i].get_id() >= index[0]:
+                        start_index = i
+                        break
             mid = (start + end) // 2
             if data[mid].get_id() >= index[0]:
                 start_index = mid
@@ -430,11 +464,16 @@ class parser:
         end_index = -1
 
         while start <= end:
+            if end - start < 8:
+                # Just use linear search
+                for i in range(start, end + 1):
+                    if data[i].get_id() <= index[1]:
+                        end_index = i
+                        break
             mid = (start + end) // 2
-            if data[mid].get_id() < index[1]:
+            if data[mid].get_id() <= index[1]:
                 end_index = mid
                 start = mid + 1
             else:
                 end = mid - 1
-
         return data[start_index : end_index + 1]
