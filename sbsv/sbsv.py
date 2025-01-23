@@ -197,12 +197,12 @@ class Schema:
         self.data = list()
         tokens = lexer.tokenize(s)
         if len(tokens) == 0:
-            raise ValueError("Invalid schema: too short")
+            raise ValueError(f"Invalid schema {s}: too short")
         self.name = tokens[0]
         for i in range(1, len(tokens)):
             key, value = lexer.token_split_default(tokens[i])
             if key == "":
-                raise ValueError("Invalid schema: empty name")
+                raise ValueError(f"Invalid schema {tokens[i]}: empty name")
             # Sub schema
             if value == "":
                 self.name = f"{self.name}${key}"
@@ -236,7 +236,7 @@ class Schema:
     def parse(self, tokens: List[str]) -> Dict[str, Any]:
         result = dict()
         if len(tokens) < len(self.schema):
-            raise ValueError("Invalid data: too short")
+            raise ValueError(f"Invalid data {tokens}: too short")
         q = queue.Queue(len(tokens))
         for token in tokens:
             q.put(token)
@@ -246,16 +246,16 @@ class Schema:
                 elem = q.get()
                 key, value = lexer.token_split_default(elem)
                 if key == "":
-                    raise ValueError("Invalid data: empty name")
+                    raise ValueError(f"Invalid data {elem}: empty name")
                 if not schema_type.check_name(key):
                     continue
                 if value == "" and not schema_type.check_nullable():
-                    raise ValueError("Invalid data: empty value")
+                    raise ValueError(f"Invalid data {elem}: empty value")
                 result[schema_type.key()] = schema_type.convert(value)
                 done = True
                 break
             if not done:
-                raise ValueError("Invalid data: missing key")
+                raise ValueError(f"Invalid data {tokens}: missing key")
         return result
 
     def get_data(self) -> List[SbsvData]:
@@ -298,7 +298,7 @@ class parser:
         if name not in self.schema:
             if self.ignore_unknown:
                 return None, None
-            raise ValueError(f"Schema not found: {name}")
+            raise ValueError(f"Invalid schema {name} at: {line}")
         return self.schema[name], value
 
     def add_schema(self, schema: str):
@@ -412,7 +412,7 @@ class parser:
             if Schema.need_parsing(schema):
                 schema = Schema(schema).name
             if schema not in self.schema:
-                raise ValueError(f"Schema not found: {schema}")
+                raise ValueError(f"Invalid schema {schema}")
             cur_schema = self.schema[schema]
             if len(cur_schema.get_data()) == 0:
                 continue
@@ -432,7 +432,7 @@ class parser:
         if Schema.need_parsing(schema):
             schema = Schema(schema).name
         if schema not in self.schema:
-            raise ValueError(f"Schema not found: {schema}")
+            raise ValueError(f"Invalid schema {schema}")
 
         data = self.schema[schema].get_data()
 

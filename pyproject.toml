@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sbsv"
-version = "0.1.1"
+dynamic = ["version"]
 authors = [
   { name="Seungheon Han", email="shhan814@gmail.com" },
 ]
@@ -20,6 +20,9 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/hsh814/sbsv"
 Issues = "https://github.com/hsh814/sbsv/issues"
+
+[tool.hatch.version]
+path = "sbsv/__init__.py"
 
 [tool.black]
 line-length = 88
