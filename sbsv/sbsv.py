@@ -4,6 +4,10 @@ from .utils import get_schema_id, get_schema_name_list, escape_str, unescape_str
 import enum
 
 
+# Global registry for custom types: name -> converter(str) -> Any
+CUSTOM_TYPES: Dict[str, Callable[[str], Any]] = dict()
+
+
 class TokenType(enum.Enum):
     LEFT_BRACKET = 1
     RIGHT_BRACKET = 2
@@ -164,6 +168,9 @@ class SbsvDataType:
             return lambda x: [
                 SbsvDataType(sub_type, sub_type).convert(v) for v in lexer.tokenize(x)
             ]
+        # Custom types
+        if type in CUSTOM_TYPES:
+            return CUSTOM_TYPES[type]
         # Unsupported types
         return None
 
@@ -171,6 +178,10 @@ class SbsvDataType:
         if value == "" and self.nullable:
             return None
         if self.converter is not None:
+            return self.converter(value)
+        # Late-bound custom type
+        if self.type in CUSTOM_TYPES:
+            self.converter = CUSTOM_TYPES[self.type]
             return self.converter(value)
         return value
 
@@ -305,6 +316,10 @@ class parser:
         # 1. tokenize
         sc = Schema(schema)
         self.schema[sc.name] = sc
+
+    def add_custom_type(self, type_name: str, type_function: Callable[[str], Any]):
+        CUSTOM_TYPES[type_name] = type_function
+        return self
 
     def add_group(self, group_name: str, start_schema: str, end_schema: str):
         if Schema.need_parsing(start_schema):

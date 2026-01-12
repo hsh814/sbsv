@@ -262,6 +262,29 @@ parser.add_schema("[car] [id: int] [data: obj[speed: int, power: int, price: int
 parser.add_schema("[map-example] [mymap: map]")
 ```
 
+### Custom types
+You can define your own types by providing a converter function that takes a string and returns a value (x: str -> custom_type).
+
+```python
+parser = sbsv.parser()
+
+# Define a custom type "hex" to parse hexadecimal numbers
+parser.add_custom_type("hex", lambda x: int(x, 16))
+
+# Use the custom type in schema
+parser.add_schema("[data] [id: hex] [val: hex]")
+
+result = parser.loads("""
+[data] [id ff] [val deadbeef]
+""")
+
+# result["data"][0]["id"] == 255
+# result["data"][0]["val"] == 3735928559
+```
+
+Notes:
+- Register custom types before adding schemas that reference them for best performance.
+
 
 ### Escape sequences for string
 ```
@@ -271,22 +294,23 @@ f"[car] [id {id}] [name {sbsv.escape_str("[name with square bracket]")}]"
 Use `sbsv.escape_str()` to get escaped string and `sbsv.unescape_str()` to get original string from escaped string.
 
 ## Contribute
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/#standalone-installer)
 ```shell
-python3 -m pip install --upgrade pip
-python3 -m pip install black
+# Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 You should run `black` linter before commit.
 ```shell
-python3 -m black .
+uvx black .
 ```
 
 Before implementing new features or fixing bugs, add new tests in `tests/`.
 ```shell
-python3 -m unittest
+uv run python -m unittest
 ```
 
 Build and update
 ```shell
-python3 -m build
-python3 -m twine upload dist/*
+uvx --from build pyproject-build
+uvx twine upload dist/*
 ```
