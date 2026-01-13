@@ -235,8 +235,6 @@ Primitive types are `str`, `int`, `float`, `bool`, `null`.
 ```python
 parser.add_schema("[car] [id?: int] [data: obj[speed: int, power: int, price?: int]]")
 ```
-
-- [ ] Not available yet
 #### list
 ```
 [data] [token] [id 2] [actual [some] [multiple] [tokens]]
@@ -244,22 +242,6 @@ parser.add_schema("[car] [id?: int] [data: obj[speed: int, power: int, price?: i
 
 ```python
 parser.add_schema("[data] [token] [id: int] [actual: list[str]]")
-```
-
-#### obj
-```
-[car] [id 1] [data [speed 100] [power 2] [price 20000]]
-```
-```python
-parser.add_schema("[car] [id: int] [data: obj[speed: int, power: int, price: int]])
-```
-
-#### map
-```
-[map-example] [mymap [id: 1, name: alice, email: wd@email.com]]
-```
-```python
-parser.add_schema("[map-example] [mymap: map]")
 ```
 
 ### Custom types
