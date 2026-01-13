@@ -229,12 +229,17 @@ Primitive types are `str`, `int`, `float`, `bool`, `null`.
 #### nullable
 ```
 [car] [id 1] [speed 100] [power 2] [price]
-[car] [id] [speed 120] [power 3] [price 33000]
+[car] [id 2] [speed 120] [power 3] [price 33000]
 ```
 
 ```python
-parser.add_schema("[car] [id?: int] [data: obj[speed: int, power: int, price?: int]]")
+parser.add_schema("[car] [id: int] [speed: int] [power: int] [price?: int]")
 ```
+Note: currently, not applicable for first element.
+```python
+parser.add_schema("[car] [id?: int] [speed: int] [power: int] [price: int]")
+```
+
 #### list
 ```
 [data] [token] [id 2] [actual [some] [multiple] [tokens]]
