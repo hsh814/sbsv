@@ -1,8 +1,7 @@
-from typing import List, Dict, Tuple, Set, TextIO, Callable, Any
+from typing import List, Dict, Tuple, Set, TextIO, Callable, Any, Optional
 import queue
 from .utils import get_schema_id, get_schema_name_list, escape_str, unescape_str
 import enum
-
 
 # Global registry for custom types: name -> converter(str) -> Any
 CUSTOM_TYPES: Dict[str, Callable[[str], Any]] = dict()
@@ -294,6 +293,22 @@ class parser:
         self.group_end = dict()
         self.ignore_unknown = ignore_unknown
 
+    @staticmethod
+    def _build_parse_error_message(
+        original_error: Exception,
+        line_number: int = None,
+        schema_name: str = None,
+    ) -> str:
+        error_message = str(original_error)
+        context = list()
+        if line_number is not None:
+            context.append(f"line={line_number}")
+        if schema_name is not None:
+            context.append(f"schema={schema_name}")
+        if len(context) == 0:
+            return error_message
+        return f"Parse error ({', '.join(context)}): {error_message}"
+
     # New parser with same schema
     def clone(self) -> "parser":
         result = parser(self.ignore_unknown)
@@ -304,13 +319,12 @@ class parser:
     def get_global_id(self) -> int:
         return len(self.data)
 
-    def match_schema(self, line: str) -> Tuple[Schema, List[str]]:
-        name, value = Schema.preprocess(line)
+    def match_schema(self, name: str, line_number: int = None) -> Optional[Schema]:
         if name not in self.schema:
             if self.ignore_unknown:
-                return None, None
-            raise ValueError(f"Invalid schema {name} at: {line}")
-        return self.schema[name], value
+                return None
+            raise ValueError(f"Invalid schema {name} at line {line_number}")
+        return self.schema[name]
 
     def add_schema(self, schema: str):
         # 1. tokenize
@@ -394,25 +408,32 @@ class parser:
                 # Else, it did not meet the end schema
                 self.group_start[schema.name] = cur_id
 
-    def parse_line(self, line: str):
+    def parse_line(self, line: str, line_number: int = None):
         line = line.strip()
         if len(line) == 0 or line.startswith("#"):
             return
-        sc, tokens = self.match_schema(line)
-        if sc is None:
-            return
-        row = sc.parse(tokens)
-        self.append_row_to_data(sc, row)
+        schema_name, tokens = Schema.preprocess(line)
+        try:
+            sc = self.match_schema(schema_name, line_number)
+            if sc is None:
+                return
+            schema_name = sc.name
+            row = sc.parse(tokens)
+            self.append_row_to_data(sc, row)
+        except ValueError as e:
+            raise ValueError(
+                parser._build_parse_error_message(e, line_number, schema_name)
+            ) from e
 
     def load(self, fp: TextIO) -> dict:
-        for line in fp:
-            self.parse_line(line)
+        for line_number, line in enumerate(fp, start=1):
+            self.parse_line(line, line_number)
         self.post_process()
         return self.result
 
     def loads(self, s: str) -> dict:
-        for line in s.split("\n"):
-            self.parse_line(line)
+        for line_number, line in enumerate(s.split("\n"), start=1):
+            self.parse_line(line, line_number)
         self.post_process()
         return self.result
 

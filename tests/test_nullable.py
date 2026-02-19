@@ -16,7 +16,7 @@ class TestNullable(unittest.TestCase):
         self.assertEqual(result["mem"]["neg"][0]["file"], None)
         self.assertEqual(result["mem"]["neg"][1]["id"], "myid2")
         self.assertEqual(result["mem"]["neg"][1]["file"], "[myfile2!]")
-    
+
     # def test_nullable_first(self):
     #     parser = sbsv.parser()
     #     parser.add_schema("[mem] [neg] [id?: str] [file: str]")

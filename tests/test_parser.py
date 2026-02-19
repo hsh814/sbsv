@@ -37,3 +37,25 @@ class TestParser(unittest.TestCase):
         self.assertEqual(result["mem"]["both"][1]["file$neg"], "myfile!")
         self.assertEqual(result["mem"]["both"][1]["id$pos"], "myid3")
         self.assertEqual(result["mem"]["both"][1]["file$pos"], "myfile3!")
+
+    def test_error_message_with_unknown_schema_context(self):
+        parser = sbsv.parser(ignore_unknown=False)
+        parser.add_schema("[node] [id: int]")
+
+        with self.assertRaises(ValueError) as error_context:
+            parser.loads("[edge] [id 1]\n")
+
+        message = str(error_context.exception)
+        self.assertIn("line=1", message)
+        self.assertIn("schema=edge", message)
+
+    def test_error_message_with_parse_schema_context(self):
+        parser = sbsv.parser()
+        parser.add_schema("[node] [id: int] [value: int]")
+
+        with self.assertRaises(ValueError) as error_context:
+            parser.loads("[node] [id 1]\n")
+
+        message = str(error_context.exception)
+        self.assertIn("line=1", message)
+        self.assertIn("schema=node", message)
