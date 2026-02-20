@@ -28,7 +28,7 @@ path = "sbsv/__init__.py"
 line-length = 88
 target-version = ['py38']
 include = '\.pyi?$'
-exclude = '\.env'
+exclude = '\.venv'
 
 [dependency-groups]
 dev = [
