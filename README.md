@@ -285,19 +285,20 @@ Install [uv](https://docs.astral.sh/uv/getting-started/installation/#standalone-
 ```shell
 # Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
+uv sync
 ```
 You should run `black` linter before commit.
 ```shell
-uvx black .
+uv run black .
 ```
 
 Before implementing new features or fixing bugs, add new tests in `tests/`.
 ```shell
-uv run python -m unittest
+uv run pytest
 ```
 
 Build and update
 ```shell
-uvx --from build pyproject-build
-uvx twine upload dist/*
+uv build
+uv publish
 ```

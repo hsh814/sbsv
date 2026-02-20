@@ -10,7 +10,7 @@ authors = [
 ]
 description = "SBSV: Square Brackets Separated Values"
 readme = "README.md"
-requires-python = ">=3.6"
+requires-python = ">=3.6.2"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -29,3 +29,9 @@ line-length = 88
 target-version = ['py38']
 include = '\.pyi?$'
 exclude = '\.env'
+
+[dependency-groups]
+dev = [
+    "black>=22.8.0",
+    "pytest>=7.0.1",
+]
