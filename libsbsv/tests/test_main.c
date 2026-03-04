@@ -477,6 +477,52 @@ static int test_parser_ordered_query(void) {
     return failed;
 }
 
+static int test_parser_get_rows_by_schema(void) {
+    sbsv_parser* parser = sbsv_parser_new(1);
+    int failed = 0;
+    const sbsv_row** rows = NULL;
+    size_t row_count = 0;
+
+    failed |= assert_true(parser != NULL, "parser should be created");
+    failed |= assert_true(sbsv_parser_add_schema(parser, "[node] [id: int] [value: int]") == SBSV_OK, "add node schema");
+    failed |= assert_true(sbsv_parser_add_schema(parser, "[edge] [src: int] [dst: int] [value: int]") == SBSV_OK, "add edge schema");
+    failed |= assert_true(
+        sbsv_parser_loads(
+            parser,
+            "[node] [id 1] [value 2]\n"
+            "[edge] [src 1] [dst 2] [value 6]\n"
+            "[node] [id 2] [value 3]\n"
+        ) == SBSV_OK,
+        "parse rows for schema query"
+    );
+
+    failed |= assert_true(sbsv_parser_get_rows(parser, "node", &rows, &row_count) == SBSV_OK, "query rows by schema name");
+    if (!failed) {
+        failed |= assert_true(row_count == 2, "node row count should be 2");
+        if (row_count == 2) {
+            const sbsv_value* id0 = sbsv_row_get(rows[0], "id");
+            const sbsv_value* id1 = sbsv_row_get(rows[1], "id");
+            failed |= assert_true(id0 != NULL && id0->data.int_value == 1, "first node id");
+            failed |= assert_true(id1 != NULL && id1->data.int_value == 2, "second node id");
+        }
+    }
+    sbsv_free_row_ref_array(rows);
+    rows = NULL;
+
+    failed |= assert_true(sbsv_parser_get_rows(parser, "[edge]", &rows, &row_count) == SBSV_OK, "query rows by schema expression");
+    if (!failed) {
+        failed |= assert_true(row_count == 1, "edge row count should be 1");
+        if (row_count == 1) {
+            const sbsv_value* val = sbsv_row_get(rows[0], "value");
+            failed |= assert_true(val != NULL && val->data.int_value == 6, "edge value should be 6");
+        }
+    }
+    sbsv_free_row_ref_array(rows);
+
+    sbsv_parser_free(parser);
+    return failed;
+}
+
 static int test_parser_unknown_schema_error_context(void) {
     sbsv_parser* parser = sbsv_parser_new(0);
     int failed = 0;
@@ -591,6 +637,7 @@ int main(void) {
     failed |= test_parser_group_and_index();
     failed |= test_parser_group_schema_realloc_safety();
     failed |= test_parser_ordered_query();
+    failed |= test_parser_get_rows_by_schema();
     failed |= test_parser_unknown_schema_error_context();
     failed |= test_parser_load_file_from_fp();
     failed |= test_parser_custom_void_pointer_type();

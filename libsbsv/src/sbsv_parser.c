@@ -1619,6 +1619,38 @@ sbsv_status sbsv_parser_get_rows_by_index(
     return SBSV_OK;
 }
 
+sbsv_status sbsv_parser_get_rows(
+    const sbsv_parser* parser,
+    const char* schema,
+    const sbsv_row*** out_rows,
+    size_t* out_count
+) {
+    const sbsv_schema* found;
+
+    if (parser == NULL || schema == NULL || out_rows == NULL || out_count == NULL) {
+        return SBSV_ERR_INVALID_ARG;
+    }
+
+    *out_rows = NULL;
+    *out_count = 0;
+
+    {
+        char* schema_name = NULL;
+        sbsv_status status = sbsv_schema_name_from_expr(schema, &schema_name);
+        if (status != SBSV_OK) {
+            return status;
+        }
+        found = sbsv_find_schema_const(parser, schema_name);
+        free(schema_name);
+    }
+    if (found == NULL) {
+        return SBSV_ERR_INVALID_ARG;
+    }
+
+    *out_count = found->row_count;
+    return sbsv_copy_row_refs(found->rows, found->row_count, out_rows);
+}
+
 sbsv_status sbsv_parser_get_group_indices(
     const sbsv_parser* parser,
     const char* group_name,

@@ -136,6 +136,12 @@ sbsv_status sbsv_parser_get_rows_by_index(
     const sbsv_row*** out_rows,
     size_t* out_count
 );
+sbsv_status sbsv_parser_get_rows(
+    const sbsv_parser* parser,
+    const char* schema,
+    const sbsv_row*** out_rows,
+    size_t* out_count
+);
 sbsv_status sbsv_parser_get_group_indices(
     const sbsv_parser* parser,
     const char* group_name,
