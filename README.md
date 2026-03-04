@@ -9,37 +9,7 @@ python3 -m pip install sbsv
 
 ## C library (experimental)
 
-`libsbsv` is being implemented as a standalone C library in this repository.
-
-Build and run C tests:
-
-```shell
-cd libsbsv
-cmake -S . -B build
-cmake --build build
-ctest --test-dir build --output-on-failure
-```
-
-Install (`find_package`):
-
-```shell
-cmake --install build
-```
-
-Consume from another CMake project:
-
-```cmake
-find_package(sbsv CONFIG REQUIRED)
-target_link_libraries(my_app PRIVATE sbsv::sbsv)
-```
-
-Alternative (monorepo/submodule):
-
-```cmake
-git clone https://github.com/hsh814/sbsv.git
-add_subdirectory(path/to/sbsv/libsbsv)
-target_link_libraries(my_app PRIVATE sbsv)
-```
+[libsbsv](./libsbsv) is a C library for parsing SBSV files. It provides a C API for loading and querying SBSV data, and can be used in C/C++ projects.
 
 ## Use
 You can read this log-like data:
