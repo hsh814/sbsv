@@ -1702,3 +1702,78 @@ const sbsv_value* sbsv_row_get(const sbsv_row* row, const char* key) {
     }
     return NULL;
 }
+
+const char* sbsv_row_get_string(const sbsv_row* row, const char* key) {
+    const sbsv_value* value = sbsv_row_get(row, key);
+    if (value == NULL || value->type != SBSV_VALUE_STRING) {
+        return NULL;
+    }
+    return value->data.string_value;
+}
+
+long long sbsv_row_get_int(const sbsv_row* row, const char* key, int* valid) {
+    const sbsv_value* value;
+
+    value = sbsv_row_get(row, key);
+    if (value == NULL || value->type != SBSV_VALUE_INT) {
+        if (valid != NULL) {
+            *valid = 0;
+        }
+        return 0;
+    }
+
+    if (valid != NULL) {
+        *valid = 1;
+    }
+    return value->data.int_value;
+}
+
+double sbsv_row_get_float(const sbsv_row* row, const char* key, int* valid) {
+    const sbsv_value* value;
+
+    value = sbsv_row_get(row, key);
+    if (value == NULL || value->type != SBSV_VALUE_FLOAT) {
+        if (valid != NULL) {
+            *valid = 0;
+        }
+        return 0.0;
+    }
+
+    if (valid != NULL) {
+        *valid = 1;
+    }
+    return value->data.float_value;
+}
+
+int sbsv_row_get_bool(const sbsv_row* row, const char* key, int* valid) {
+    const sbsv_value* value;
+
+    value = sbsv_row_get(row, key);
+    if (value == NULL || value->type != SBSV_VALUE_BOOL) {
+        if (valid != NULL) {
+            *valid = 0;
+        }
+        return 0;
+    }
+
+    if (valid != NULL) {
+        *valid = 1;
+    }
+    return value->data.bool_value;
+}
+
+const sbsv_value_list* sbsv_row_get_list(const sbsv_row* row, const char* key) {
+    const sbsv_value* value = sbsv_row_get(row, key);
+    if (value == NULL || value->type != SBSV_VALUE_LIST) {
+        return NULL;
+    }
+    return &value->data.list;
+}
+
+void* sbsv_row_get_custom_ptr(const sbsv_row* row, const char* key) {
+    const sbsv_value* value = sbsv_row_get(row, key);
+    if (value == NULL || value->type != SBSV_VALUE_CUSTOM) {
+        return NULL;
+    }
+    return value->data.custom_ptr;
+}

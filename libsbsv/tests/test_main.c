@@ -622,6 +622,93 @@ static int test_parser_custom_void_pointer_type(void) {
     return failed;
 }
 
+static int test_row_typed_getters(void) {
+    sbsv_parser* parser = sbsv_parser_new(1);
+    int failed = 0;
+    const sbsv_row* row;
+    const char* str_value;
+    long long int_value = 0;
+    double float_value = 0.0;
+    int bool_value = 0;
+    int int_valid = 0;
+    int float_valid = 0;
+    int bool_valid = 0;
+    const sbsv_value_list* list_value;
+    custom_boxed_int* boxed;
+
+    g_custom_boxed_int_freed = 0;
+
+    failed |= assert_true(parser != NULL, "parser should be created");
+    failed |= assert_true(sbsv_parser_add_custom_type(parser, "boxed_int", custom_boxed_int_parse, NULL) == SBSV_OK, "register boxed custom type");
+    failed |= assert_true(
+        sbsv_parser_add_schema(
+            parser,
+            "[typed] [s: str] [i: int] [f: float] [b: bool] [l: list[int]] [c: boxed_int]"
+        ) == SBSV_OK,
+        "add typed schema"
+    );
+    failed |= assert_true(
+        sbsv_parser_loads(
+            parser,
+            "[typed] [s hello] [i 42] [f 3.5] [b true] [l [1] [2]] [c 77]\n"
+        ) == SBSV_OK,
+        "parse typed row"
+    );
+
+    if (!failed) {
+        row = sbsv_parser_row_at(parser, 0);
+        failed |= assert_true(row != NULL, "row 0 exists");
+        if (row != NULL) {
+            str_value = sbsv_row_get_string(row, "s");
+            failed |= assert_str_eq(str_value, "hello", "string getter");
+
+            int_valid = 0;
+            int_value = sbsv_row_get_int(row, "i", &int_valid);
+            failed |= assert_true(int_valid == 1 && int_value == 42, "int getter");
+            float_valid = 0;
+            float_value = sbsv_row_get_float(row, "f", &float_valid);
+            failed |= assert_true(float_valid == 1 && float_value == 3.5, "float getter");
+            bool_valid = 0;
+            bool_value = sbsv_row_get_bool(row, "b", &bool_valid);
+            failed |= assert_true(bool_valid == 1 && bool_value == 1, "bool getter");
+
+            list_value = sbsv_row_get_list(row, "l");
+            failed |= assert_true(list_value != NULL && list_value->count == 2, "list getter count");
+            if (list_value != NULL && list_value->count == 2) {
+                failed |= assert_true(list_value->items[0].data.int_value == 1, "list getter item0");
+                failed |= assert_true(list_value->items[1].data.int_value == 2, "list getter item1");
+            }
+
+            boxed = (custom_boxed_int*)sbsv_row_get_custom_ptr(row, "c");
+            failed |= assert_true(boxed != NULL && boxed->parsed == 77, "custom pointer getter");
+
+            failed |= assert_true(sbsv_row_get_string(row, "i") == NULL, "string getter type mismatch");
+            int_valid = 1;
+            int_value = sbsv_row_get_int(row, "s", &int_valid);
+            failed |= assert_true(int_valid == 0 && int_value == 0, "int getter type mismatch");
+
+            float_valid = 1;
+            float_value = sbsv_row_get_float(row, "s", &float_valid);
+            failed |= assert_true(float_valid == 0 && float_value == 0.0, "float getter type mismatch");
+
+            bool_valid = 1;
+            bool_value = sbsv_row_get_bool(row, "s", &bool_valid);
+            failed |= assert_true(bool_valid == 0 && bool_value == 0, "bool getter type mismatch");
+
+            int_value = sbsv_row_get_int(row, "i", NULL);
+            failed |= assert_true(int_value == 42, "int getter should support NULL valid");
+            float_value = sbsv_row_get_float(row, "f", NULL);
+            failed |= assert_true(float_value == 3.5, "float getter should support NULL valid");
+            bool_value = sbsv_row_get_bool(row, "b", NULL);
+            failed |= assert_true(bool_value == 1, "bool getter should support NULL valid");
+        }
+    }
+
+    sbsv_parser_free(parser);
+    failed |= assert_true(g_custom_boxed_int_freed == 1, "typed getter custom value should be freed");
+    return failed;
+}
+
 int main(void) {
     int failed = 0;
 
@@ -641,6 +728,7 @@ int main(void) {
     failed |= test_parser_unknown_schema_error_context();
     failed |= test_parser_load_file_from_fp();
     failed |= test_parser_custom_void_pointer_type();
+    failed |= test_row_typed_getters();
 
     if (failed) {
         fprintf(stderr, "sbsv C tests failed\n");

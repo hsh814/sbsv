@@ -152,6 +152,12 @@ void sbsv_free_row_ref_array(const sbsv_row** rows);
 void sbsv_free_group_indices(sbsv_index_range* ranges);
 
 const sbsv_value* sbsv_row_get(const sbsv_row* row, const char* key);
+const char* sbsv_row_get_string(const sbsv_row* row, const char* key);
+long long sbsv_row_get_int(const sbsv_row* row, const char* key, int* valid);
+double sbsv_row_get_float(const sbsv_row* row, const char* key, int* valid);
+int sbsv_row_get_bool(const sbsv_row* row, const char* key, int* valid);
+const sbsv_value_list* sbsv_row_get_list(const sbsv_row* row, const char* key);
+void* sbsv_row_get_custom_ptr(const sbsv_row* row, const char* key);
 
 #ifdef __cplusplus
 }
