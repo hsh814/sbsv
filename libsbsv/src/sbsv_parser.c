@@ -1318,19 +1318,28 @@ sbsv_status sbsv_parser_loads(sbsv_parser* parser, const char* content) {
 
     cursor = content;
     line_start = content;
+    size_t prev_line_len = 0;
+    char* line_buffer = NULL;
     while (1) {
         if (*cursor == '\n' || *cursor == '\0') {
             size_t len = (size_t)(cursor - line_start);
-            char* line = (char*)malloc(len + 1);
+            if (line_buffer == NULL || len > prev_line_len) {
+                char* new_buffer = (char*)realloc(line_buffer, len + 1);
+                if (new_buffer == NULL) {
+                    free(line_buffer);
+                    return SBSV_ERR_ALLOC;
+                }
+                line_buffer = new_buffer;
+                prev_line_len = len;
+            }
             sbsv_status status;
-            if (line == NULL) {
+            if (line_buffer == NULL) {
                 return SBSV_ERR_ALLOC;
             }
-            memcpy(line, line_start, len);
-            line[len] = '\0';
+            memcpy(line_buffer, line_start, len);
+            line_buffer[len] = '\0';
 
-            status = sbsv_parser_parse_line(parser, line, line_number);
-            free(line);
+            status = sbsv_parser_parse_line(parser, line_buffer, line_number);
             if (status != SBSV_OK) {
                 return status;
             }
@@ -1342,6 +1351,9 @@ sbsv_status sbsv_parser_loads(sbsv_parser* parser, const char* content) {
             line_start = cursor + 1;
         }
         cursor += 1;
+    }
+    if (line_buffer != NULL) {
+        free(line_buffer);
     }
 
     {
