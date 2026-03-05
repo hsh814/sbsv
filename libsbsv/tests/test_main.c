@@ -543,6 +543,27 @@ static int test_parser_unknown_schema_error_context(void) {
     return failed;
 }
 
+static int test_parser_error_detail_not_corrupted(void) {
+    sbsv_parser* parser = sbsv_parser_new(0);
+    int failed = 0;
+    sbsv_status status;
+    const char* error;
+
+    failed |= assert_true(parser != NULL, "parser should be created");
+    failed |= assert_true(sbsv_parser_add_schema(parser, "[pointer] [size: int] [target: int]") == SBSV_OK, "add pointer schema");
+
+    status = sbsv_parser_loads(parser, "[pointer] [sz 8] [target 10]\n");
+    failed |= assert_true(status == SBSV_ERR_INVALID_ARG, "missing key should fail");
+
+    error = sbsv_parser_last_error(parser);
+    failed |= assert_contains(error, "line=1", "error should contain line number");
+    failed |= assert_contains(error, "schema=pointer", "error should contain schema name");
+    failed |= assert_contains(error, "missing key", "error should keep inner parse detail");
+
+    sbsv_parser_free(parser);
+    return failed;
+}
+
 static int test_parser_load_file_from_fp(void) {
     sbsv_parser* parser = sbsv_parser_new(1);
     FILE* fp = NULL;
@@ -726,6 +747,7 @@ int main(void) {
     failed |= test_parser_ordered_query();
     failed |= test_parser_get_rows_by_schema();
     failed |= test_parser_unknown_schema_error_context();
+    failed |= test_parser_error_detail_not_corrupted();
     failed |= test_parser_load_file_from_fp();
     failed |= test_parser_custom_void_pointer_type();
     failed |= test_row_typed_getters();

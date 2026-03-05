@@ -1293,7 +1293,13 @@ sbsv_status sbsv_parser_parse_line(sbsv_parser* parser, const char* line, size_t
     status = sbsv_parse_row_for_schema(parser, schema, pre.data_tokens, pre.data_count, &row);
     if (status != SBSV_OK) {
         const char* detail = parser->last_error ? parser->last_error : "parse error";
-        sbsv_parser_set_error(parser, "Parse error (line=%zu, schema=%s): %s", line_number, schema->name, detail);
+        char* detail_copy = sbsv_strdup_local(detail);
+        if (detail_copy != NULL) {
+            sbsv_parser_set_error(parser, "Parse error (line=%zu, schema=%s): %s", line_number, schema->name, detail_copy);
+            free(detail_copy);
+        } else {
+            sbsv_parser_set_error(parser, "Parse error (line=%zu, schema=%s): parse error", line_number, schema->name);
+        }
         sbsv_preprocessed_line_free(&pre);
         return status;
     }
