@@ -64,16 +64,18 @@ But if you add sub schema, you cannot add new schema with same schema name witho
 # this will cause error
 ```
 
-### Ignore
-- [ ] Not available yet
+### Ignore (TODO)
 ```
 [2024-03-04 13:22:56] [DEBUG] [necessary] [from] [this part]
 ```
 Regular log file may contain unnecessary data. You can specify parser to ignore `[2024-03-04 13:22:56] [DEBUG]` part.
 
 ```python
-parser.add_schema("[$ignore] [$ignore] [necessary] [from] [this: str]")
+# This will ignore first two elements for all lines.
+parser.ignore_prefix("[$timestamp] [$log_level]")
+parser.add_schema("[necessary] [from] [this: str]")
 ```
+You can use `parser.ignore_prefix("[$timestamp] [$log_level]", save_ignored=True)` to save ignored data in result.
 
 ### Duplicating names
 Sometimes, you may want to use same name multiple times. You can distinguish them using additional tags.
@@ -276,6 +278,38 @@ result = parser.loads("""
 Notes:
 - Register custom types before adding schemas that reference them for best performance.
 
+## Utilities
+### Line parser (stateless) (TODO)
+If you want to parse single line, you can use `line_parser`
+```python
+parser = sbsv.line_parser()
+parser.add_schema("[node] [id: int] [value: int]")
+parser.add_schema("[edge] [src: int] [dst: int] [value: int]")
+result = parser.loads("[node] [id 1] [value 2]")
+# result == SbsvData(schema_name="node", data={"id": 1, "value": 2})
+# Note: result is not dict, but SbsvData object.
+```
+You cannot use `parser.get_result()` or `parser.get_result_in_order()` for `line_parser` - it does not store results in parser, but return directly.
+This can be useful in cases like parsing log lines one by one, without storing them in memory. 
+
+### Body parser (TODO)
+```python
+parser = sbsv.body_parser("[id: int] [value: int]")
+result = parser.loads("[id 1] [value 2]")
+# result == {"id": 1, "value": 2}
+```
+This only takes schema body, without schema name. It is useful when you want to parse data without caring about schema name. 
+For example, it can be used for custom types that implements nested type.
+```python
+parser = sbsv.parser()
+body_parser = sbsv.body_parser("[id: int] [value: int]")
+def custom_type_converter(x: str):
+    return body_parser.loads(x)
+parser.add_custom_type("mytype", custom_type_converter)
+parser.add_schema("[data] [val: mytype]")
+result = parser.loads("[data] [val [id 1] [value 2]]")
+# result["data"][0]["val"] == {"id": 1, "value": 2}
+```
 
 ### Escape sequences for string
 ```
