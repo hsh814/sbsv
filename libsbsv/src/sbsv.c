@@ -4,28 +4,92 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct {
-    char raw;
-    const char* escaped;
-    size_t escaped_len;
-} sbsv_escape_entry;
+static const char* sbsv_escape_replacement(char ch, size_t* out_len) {
+    switch (ch) {
+        case '\b':
+            *out_len = 2;
+            return "\\b";
+        case '\t':
+            *out_len = 2;
+            return "\\t";
+        case '\n':
+            *out_len = 2;
+            return "\\n";
+        case '\f':
+            *out_len = 2;
+            return "\\f";
+        case '\r':
+            *out_len = 2;
+            return "\\r";
+        case '\"':
+            *out_len = 2;
+            return "\\\"";
+        case '/':
+            *out_len = 2;
+            return "\\/";
+        case '\\':
+            *out_len = 2;
+            return "\\\\";
+        case '[':
+            *out_len = 2;
+            return "\\[";
+        case ']':
+            *out_len = 2;
+            return "\\]";
+        case ',':
+            *out_len = 2;
+            return "\\,";
+        case ':':
+            *out_len = 2;
+            return "\\:";
+        default:
+            *out_len = 0;
+            return NULL;
+    }
+}
 
-static const sbsv_escape_entry ESCAPE_TABLE[] = {
-    {'\b', "\\b", 2},
-    {'\t', "\\t", 2},
-    {'\n', "\\n", 2},
-    {'\f', "\\f", 2},
-    {'\r', "\\r", 2},
-    {'\"', "\\\"", 2},
-    {'/', "\\/", 2},
-    {'\\', "\\\\", 2},
-    {'[', "\\[", 2},
-    {']', "\\]", 2},
-    {',', "\\,", 2},
-    {':', "\\:", 2},
-};
-
-static const size_t ESCAPE_TABLE_SIZE = sizeof(ESCAPE_TABLE) / sizeof(ESCAPE_TABLE[0]);
+static bool sbsv_unescape_char(char escaped, char* out_raw) {
+    switch (escaped) {
+        case 'b':
+            *out_raw = '\b';
+            return true;
+        case 't':
+            *out_raw = '\t';
+            return true;
+        case 'n':
+            *out_raw = '\n';
+            return true;
+        case 'f':
+            *out_raw = '\f';
+            return true;
+        case 'r':
+            *out_raw = '\r';
+            return true;
+        case '"':
+            *out_raw = '"';
+            return true;
+        case '/':
+            *out_raw = '/';
+            return true;
+        case '\\':
+            *out_raw = '\\';
+            return true;
+        case '[':
+            *out_raw = '[';
+            return true;
+        case ']':
+            *out_raw = ']';
+            return true;
+        case ',':
+            *out_raw = ',';
+            return true;
+        case ':':
+            *out_raw = ':';
+            return true;
+        default:
+            return false;
+    }
+}
 
 const char* sbsv_status_str(sbsv_status status) {
     switch (status) {
@@ -97,47 +161,67 @@ static sbsv_status sbsv_append_char(char** buffer, size_t* len, size_t* cap, cha
     return SBSV_OK;
 }
 
-static sbsv_status sbsv_append_token(sbsv_token_list* tokens, char* token) {
-    char** new_items;
+static sbsv_status sbsv_append_bytes(char** buffer, size_t* len, size_t* cap, const char* src, size_t src_len) {
+    char* new_buffer;
 
-    new_items = (char**)realloc(tokens->items, sizeof(char*) * (tokens->count + 1));
-    if (new_items == NULL) {
-        return SBSV_ERR_ALLOC;
+    if (*len + src_len >= *cap) {
+        size_t new_cap = (*cap == 0) ? 16 : (*cap * 2);
+        while (*len + src_len >= new_cap) {
+            new_cap *= 2;
+        }
+        new_buffer = (char*)realloc(*buffer, new_cap);
+        if (new_buffer == NULL) {
+            return SBSV_ERR_ALLOC;
+        }
+        *buffer = new_buffer;
+        *cap = new_cap;
     }
 
-    tokens->items = new_items;
+    if (src_len > 0) {
+        memcpy(*buffer + *len, src, src_len);
+    }
+    *len += src_len;
+    (*buffer)[*len] = '\0';
+    return SBSV_OK;
+}
+
+static sbsv_status sbsv_append_token(sbsv_token_list* tokens, size_t* token_cap, char* token) {
+    char** new_items;
+
+    if (tokens->count >= *token_cap) {
+        size_t new_cap = (*token_cap == 0) ? 4 : (*token_cap * 2);
+        while (tokens->count >= new_cap) {
+            new_cap *= 2;
+        }
+        new_items = (char**)realloc(tokens->items, sizeof(char*) * new_cap);
+        if (new_items == NULL) {
+            return SBSV_ERR_ALLOC;
+        }
+        tokens->items = new_items;
+        *token_cap = new_cap;
+    }
+
     tokens->items[tokens->count] = token;
     tokens->count += 1;
     return SBSV_OK;
 }
 
-static sbsv_status sbsv_finalize_token(const char* token_buf, bool should_unescape, sbsv_token_list* out_tokens) {
+static sbsv_status sbsv_finalize_token(const char* token_buf, size_t token_len, sbsv_token_list* out_tokens, size_t* token_cap) {
     const char* start;
     const char* end;
-    char* raw_token = NULL;
     char* final_token = NULL;
     sbsv_status status;
 
     start = token_buf;
-    end = token_buf + strlen(token_buf);
+    end = token_buf + token_len;
     sbsv_trim_view(&start, &end);
 
-    status = sbsv_copy_to_heap(start, (size_t)(end - start), &raw_token);
+    status = sbsv_copy_to_heap(start, (size_t)(end - start), &final_token);
     if (status != SBSV_OK) {
         return status;
     }
 
-    if (should_unescape) {
-        status = sbsv_unescape_str(raw_token, &final_token);
-        free(raw_token);
-        if (status != SBSV_OK) {
-            return status;
-        }
-    } else {
-        final_token = raw_token;
-    }
-
-    status = sbsv_append_token(out_tokens, final_token);
+    status = sbsv_append_token(out_tokens, token_cap, final_token);
     if (status != SBSV_OK) {
         free(final_token);
         return status;
@@ -171,39 +255,19 @@ sbsv_status sbsv_escape_str(const char* input, char** output) {
     result[0] = '\0';
 
     for (index = 0; index < length; ++index) {
-        bool replaced = false;
-        size_t entry_index;
-        for (entry_index = 0; entry_index < ESCAPE_TABLE_SIZE; ++entry_index) {
-            if (input[index] == ESCAPE_TABLE[entry_index].raw) {
-                size_t needed = out_len + ESCAPE_TABLE[entry_index].escaped_len + 1;
-                if (needed > out_cap) {
-                    size_t new_cap = out_cap * 2;
-                    char* new_result;
-                    while (needed > new_cap) {
-                        new_cap *= 2;
-                    }
-                    new_result = (char*)realloc(result, new_cap);
-                    if (new_result == NULL) {
-                        free(result);
-                        return SBSV_ERR_ALLOC;
-                    }
-                    result = new_result;
-                    out_cap = new_cap;
-                }
-                memcpy(result + out_len, ESCAPE_TABLE[entry_index].escaped, ESCAPE_TABLE[entry_index].escaped_len);
-                out_len += ESCAPE_TABLE[entry_index].escaped_len;
-                result[out_len] = '\0';
-                replaced = true;
-                break;
-            }
+        size_t escaped_len;
+        const char* escaped = sbsv_escape_replacement(input[index], &escaped_len);
+        sbsv_status st;
+
+        if (escaped != NULL) {
+            st = sbsv_append_bytes(&result, &out_len, &out_cap, escaped, escaped_len);
+        } else {
+            st = sbsv_append_char(&result, &out_len, &out_cap, input[index]);
         }
 
-        if (!replaced) {
-            sbsv_status st = sbsv_append_char(&result, &out_len, &out_cap, input[index]);
-            if (st != SBSV_OK) {
-                free(result);
-                return st;
-            }
+        if (st != SBSV_OK) {
+            free(result);
+            return st;
         }
     }
 
@@ -231,17 +295,13 @@ sbsv_status sbsv_unescape_str(const char* input, char** output) {
     i = 0;
     while (i < length) {
         if (input[i] == '\\' && i + 1 < length) {
-            bool matched = false;
-            size_t entry_index;
-            for (entry_index = 0; entry_index < ESCAPE_TABLE_SIZE; ++entry_index) {
-                if (input[i + 1] == ESCAPE_TABLE[entry_index].escaped[1]) {
-                    result[out_len++] = ESCAPE_TABLE[entry_index].raw;
-                    i += 2;
-                    matched = true;
-                    break;
-                }
-            }
+            bool matched;
+            char unescaped;
+
+            matched = sbsv_unescape_char(input[i + 1], &unescaped);
             if (matched) {
+                result[out_len++] = unescaped;
+                i += 2;
                 continue;
             }
         }
@@ -260,10 +320,10 @@ sbsv_status sbsv_tokenize_line(const char* line, sbsv_token_list* out_tokens) {
     size_t length;
     size_t i;
     bool escape;
-    bool should_unescape;
     char* current;
     size_t current_len;
     size_t current_cap;
+    size_t token_cap;
     sbsv_status status;
 
     if (line == NULL || out_tokens == NULL) {
@@ -276,10 +336,10 @@ sbsv_status sbsv_tokenize_line(const char* line, sbsv_token_list* out_tokens) {
     level = 0;
     length = strlen(line);
     escape = false;
-    should_unescape = false;
     current = NULL;
     current_len = 0;
     current_cap = 0;
+    token_cap = 0;
 
     status = sbsv_append_char(&current, &current_len, &current_cap, '\0');
     if (status != SBSV_OK) {
@@ -291,25 +351,31 @@ sbsv_status sbsv_tokenize_line(const char* line, sbsv_token_list* out_tokens) {
         char ch = line[i];
 
         if (escape) {
+            char unescaped;
+
             escape = false;
-            status = sbsv_append_char(&current, &current_len, &current_cap, '\\');
-            if (status != SBSV_OK) {
-                free(current);
-                sbsv_free_token_list(out_tokens);
-                return status;
-            }
-            status = sbsv_append_char(&current, &current_len, &current_cap, ch);
-            if (status != SBSV_OK) {
-                free(current);
-                sbsv_free_token_list(out_tokens);
-                return status;
+
+            if (level > 0) {
+                if (sbsv_unescape_char(ch, &unescaped)) {
+                    status = sbsv_append_char(&current, &current_len, &current_cap, unescaped);
+                } else {
+                    status = sbsv_append_char(&current, &current_len, &current_cap, '\\');
+                    if (status == SBSV_OK) {
+                        status = sbsv_append_char(&current, &current_len, &current_cap, ch);
+                    }
+                }
+
+                if (status != SBSV_OK) {
+                    free(current);
+                    sbsv_free_token_list(out_tokens);
+                    return status;
+                }
             }
             continue;
         }
 
         if (ch == '\\') {
             escape = true;
-            should_unescape = true;
             continue;
         }
 
@@ -317,13 +383,12 @@ sbsv_status sbsv_tokenize_line(const char* line, sbsv_token_list* out_tokens) {
             level += 1;
             if (level == 1) {
                 if (current_len > 0) {
-                    status = sbsv_finalize_token(current, should_unescape, out_tokens);
+                    status = sbsv_finalize_token(current, current_len, out_tokens, &token_cap);
                     if (status != SBSV_OK) {
                         free(current);
                         sbsv_free_token_list(out_tokens);
                         return status;
                     }
-                    should_unescape = false;
                 }
                 current_len = 0;
                 current[0] = '\0';
@@ -332,13 +397,12 @@ sbsv_status sbsv_tokenize_line(const char* line, sbsv_token_list* out_tokens) {
         } else if (ch == ']') {
             level -= 1;
             if (level == 0) {
-                status = sbsv_finalize_token(current, should_unescape, out_tokens);
+                status = sbsv_finalize_token(current, current_len, out_tokens, &token_cap);
                 if (status != SBSV_OK) {
                     free(current);
                     sbsv_free_token_list(out_tokens);
                     return status;
                 }
-                should_unescape = false;
                 current_len = 0;
                 current[0] = '\0';
                 continue;
@@ -352,6 +416,15 @@ sbsv_status sbsv_tokenize_line(const char* line, sbsv_token_list* out_tokens) {
                 sbsv_free_token_list(out_tokens);
                 return status;
             }
+        }
+    }
+
+    if (escape && level > 0) {
+        status = sbsv_append_char(&current, &current_len, &current_cap, '\\');
+        if (status != SBSV_OK) {
+            free(current);
+            sbsv_free_token_list(out_tokens);
+            return status;
         }
     }
 

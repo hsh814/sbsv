@@ -1258,7 +1258,7 @@ sbsv_status sbsv_parser_parse_line(sbsv_parser* parser, const char* line, size_t
     }
     sbsv_trim_inplace(stripped);
 
-    if (strlen(stripped) == 0 || stripped[0] == '#') {
+    if (stripped[0] == '\0' || stripped[0] == '#') {
         free(stripped);
         return SBSV_OK;
     }
@@ -1341,6 +1341,7 @@ sbsv_status sbsv_parser_loads(sbsv_parser* parser, const char* content) {
 
             status = sbsv_parser_parse_line(parser, line_buffer, line_number);
             if (status != SBSV_OK) {
+                free(line_buffer);
                 return status;
             }
 
