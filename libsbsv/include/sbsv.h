@@ -33,6 +33,11 @@ typedef enum {
     SBSV_VALUE_CUSTOM = 6
 } sbsv_value_type;
 
+typedef enum {
+    SBSV_PARSER_DEFAULT = 0,
+    SBSV_PARSER_NO_IGNORE_UNKNOWN = 1
+} sbsv_parser_flags;
+
 typedef struct sbsv_value sbsv_value;
 
 typedef struct {
@@ -94,7 +99,7 @@ void sbsv_value_clear(sbsv_value* value);
 sbsv_status sbsv_value_set_string(sbsv_value* value, const char* string_value);
 sbsv_status sbsv_value_set_custom_ptr(sbsv_value* value, void* custom_ptr, sbsv_custom_free_fn custom_free);
 
-sbsv_parser* sbsv_parser_new(int ignore_unknown);
+sbsv_parser* sbsv_parser_new(sbsv_parser_flags flags);
 void sbsv_parser_free(sbsv_parser* parser);
 const char* sbsv_parser_last_error(const sbsv_parser* parser);
 

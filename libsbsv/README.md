@@ -38,7 +38,7 @@ const char *log = "[node] [id 1] [value 2]\n"
             "[node] [id 2] [value 3]\n"
             "[edge] [src 1] [dst 2] [value 6]\n";
 
-sbsv_parser* parser = sbsv_parser_new(1);
+sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_DEFAULT);
 assert(sbsv_parser_add_schema(parser, "[node] [id: int] [value: int]") == SBSV_OK);
 assert(sbsv_parser_add_schema(parser, "[edge] [src: int] [dst: int] [value: int]") == SBSV_OK);
 

@@ -170,7 +170,7 @@ static sbsv_status custom_boxed_int_parse(const char* input, sbsv_value* out_val
 }
 
 static int test_parser_basic(void) {
-    sbsv_parser* parser = sbsv_parser_new(1);
+    sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_NO_IGNORE_UNKNOWN);
     int failed = 0;
     const sbsv_row* row;
     const sbsv_value* value;
@@ -213,7 +213,7 @@ static int test_parser_basic(void) {
 }
 
 static int test_parser_nullable_and_list(void) {
-    sbsv_parser* parser = sbsv_parser_new(1);
+    sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_NO_IGNORE_UNKNOWN);
     int failed = 0;
     const sbsv_row* row;
     const sbsv_value* file_value;
@@ -253,7 +253,7 @@ static int test_parser_nullable_and_list(void) {
 }
 
 static int test_parser_custom_type_and_late_registration(void) {
-    sbsv_parser* parser = sbsv_parser_new(1);
+    sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_NO_IGNORE_UNKNOWN);
     int failed = 0;
     const sbsv_row* row;
     const sbsv_value* value;
@@ -274,7 +274,7 @@ static int test_parser_custom_type_and_late_registration(void) {
 }
 
 static int test_parser_duplicating_names_with_tags(void) {
-    sbsv_parser* parser = sbsv_parser_new(1);
+    sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_NO_IGNORE_UNKNOWN);
     int failed = 0;
     const sbsv_row* row;
     const sbsv_value* value;
@@ -307,7 +307,7 @@ static int test_parser_duplicating_names_with_tags(void) {
 }
 
 static int test_parser_name_matching_ignores_unknown_in_order(void) {
-    sbsv_parser* parser = sbsv_parser_new(1);
+    sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_NO_IGNORE_UNKNOWN);
     int failed = 0;
     const sbsv_row* row;
     const sbsv_value* node_value;
@@ -339,7 +339,7 @@ static int test_parser_name_matching_ignores_unknown_in_order(void) {
 }
 
 static int test_parser_group_and_index(void) {
-    sbsv_parser* parser = sbsv_parser_new(1);
+    sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_NO_IGNORE_UNKNOWN);
     int failed = 0;
     sbsv_index_range* ranges = NULL;
     size_t range_count = 0;
@@ -386,7 +386,7 @@ static int test_parser_group_and_index(void) {
 }
 
 static int test_parser_group_schema_realloc_safety(void) {
-    sbsv_parser* parser = sbsv_parser_new(1);
+    sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_NO_IGNORE_UNKNOWN);
     int failed = 0;
     sbsv_index_range* ranges = NULL;
     size_t range_count = 0;
@@ -441,7 +441,7 @@ static int test_parser_group_schema_realloc_safety(void) {
 }
 
 static int test_parser_ordered_query(void) {
-    sbsv_parser* parser = sbsv_parser_new(1);
+    sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_NO_IGNORE_UNKNOWN);
     int failed = 0;
     const char* schemas[2] = {"node", "edge"};
     const sbsv_row** rows = NULL;
@@ -478,7 +478,7 @@ static int test_parser_ordered_query(void) {
 }
 
 static int test_parser_get_rows_by_schema(void) {
-    sbsv_parser* parser = sbsv_parser_new(1);
+    sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_NO_IGNORE_UNKNOWN);
     int failed = 0;
     const sbsv_row** rows = NULL;
     size_t row_count = 0;
@@ -524,7 +524,7 @@ static int test_parser_get_rows_by_schema(void) {
 }
 
 static int test_parser_unknown_schema_error_context(void) {
-    sbsv_parser* parser = sbsv_parser_new(0);
+    sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_DEFAULT);
     int failed = 0;
     sbsv_status status;
     const char* error;
@@ -544,7 +544,7 @@ static int test_parser_unknown_schema_error_context(void) {
 }
 
 static int test_parser_error_detail_not_corrupted(void) {
-    sbsv_parser* parser = sbsv_parser_new(0);
+    sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_DEFAULT);
     int failed = 0;
     sbsv_status status;
     const char* error;
@@ -565,7 +565,7 @@ static int test_parser_error_detail_not_corrupted(void) {
 }
 
 static int test_parser_load_file_from_fp(void) {
-    sbsv_parser* parser = sbsv_parser_new(1);
+    sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_NO_IGNORE_UNKNOWN);
     FILE* fp = NULL;
     int failed = 0;
     const sbsv_row* row;
@@ -615,7 +615,7 @@ static int test_parser_load_file_from_fp(void) {
 }
 
 static int test_parser_custom_void_pointer_type(void) {
-    sbsv_parser* parser = sbsv_parser_new(1);
+    sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_NO_IGNORE_UNKNOWN);
     int failed = 0;
     const sbsv_row* row;
     const sbsv_value* value;
@@ -644,7 +644,7 @@ static int test_parser_custom_void_pointer_type(void) {
 }
 
 static int test_row_typed_getters(void) {
-    sbsv_parser* parser = sbsv_parser_new(1);
+    sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_NO_IGNORE_UNKNOWN);
     int failed = 0;
     const sbsv_row* row;
     const char* str_value;

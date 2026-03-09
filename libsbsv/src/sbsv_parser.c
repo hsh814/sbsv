@@ -289,13 +289,13 @@ static void sbsv_group_free(sbsv_group* group) {
     free(group->ranges);
 }
 
-sbsv_parser* sbsv_parser_new(int ignore_unknown) {
+sbsv_parser* sbsv_parser_new(sbsv_parser_flags flags) {
     sbsv_parser* parser = (sbsv_parser*)calloc(1, sizeof(sbsv_parser));
     if (parser == NULL) {
         return NULL;
     }
 
-    parser->ignore_unknown = ignore_unknown ? 1 : 0;
+    parser->ignore_unknown = (flags & SBSV_PARSER_NO_IGNORE_UNKNOWN) ? 0 : 1;
     return parser;
 }
 
