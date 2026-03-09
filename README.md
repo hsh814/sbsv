@@ -1,5 +1,6 @@
 # SBSV: square bracket separated values
-A flexible, schema-based structured log data format.
+A flexible, schema-driven structured log data format.
+Human readable, easy to write (you can write it without any dependencies: simple `print()` works fine), and easy to parse.
 
 ## Install
 
