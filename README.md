@@ -287,6 +287,7 @@ result = parser.loads("""
 Notes:
 - Register custom types before adding any schema. `add_custom_type()` raises `ValueError` if a schema already exists.
 - Schemas that reference an unregistered custom type raise `ValueError`.
+- Custom types are local to each parser instance. Registering a custom type on one parser does not affect other parsers in the same process.
 
 ## Utilities
 ### Line parser (stateless)

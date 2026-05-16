@@ -1,10 +1,7 @@
-from typing import List, Dict, Tuple, Set, TextIO, Callable, Any, Optional
+from typing import List, Dict, Tuple, TextIO, Callable, Any, Optional
 import queue
 from .utils import get_schema_id, get_schema_name_list, escape_str, unescape_str
 import enum
-
-# Global registry for custom types: name -> converter(str) -> Any
-CUSTOM_TYPES: Dict[str, Callable[[str], Any]] = dict()
 
 
 class TokenType(enum.Enum):
@@ -128,7 +125,12 @@ class SbsvDataType:
     converter: Callable[[str], Any]
     sub_type: List["SbsvDataType"]
 
-    def __init__(self, name_with_tag: str, type: str):
+    def __init__(
+        self,
+        name_with_tag: str,
+        type: str,
+        custom_types: Optional[Dict[str, Callable[[str], Any]]] = None,
+    ):
         self.nullable = name_with_tag.endswith("?")
         if self.nullable:
             name_with_tag = name_with_tag[:-1]
@@ -139,7 +141,7 @@ class SbsvDataType:
         else:
             self.name = name_with_tag
         self.type = type
-        self.converter = self.add_converter(type)
+        self.converter = self.add_converter(type, custom_types or dict())
         self.sub_type = list()
 
     @staticmethod
@@ -168,7 +170,9 @@ class SbsvDataType:
             raise ValueError(f"Invalid list type: {type}")
         return sub_type
 
-    def add_converter(self, type: str) -> Callable[[str], Any]:
+    def add_converter(
+        self, type: str, custom_types: Dict[str, Callable[[str], Any]]
+    ) -> Callable[[str], Any]:
         # Primitive types
         if type == "int":
             return int
@@ -183,11 +187,11 @@ class SbsvDataType:
         # Complex types
         sub_type = SbsvDataType.list_sub_type(type)
         if sub_type is not None:
-            sub_converter = SbsvDataType(sub_type, sub_type)
+            sub_converter = SbsvDataType(sub_type, sub_type, custom_types)
             return lambda x: [sub_converter.convert(v) for v in lexer.tokenize(x)]
         # Custom types
-        if type in CUSTOM_TYPES:
-            return CUSTOM_TYPES[type]
+        if type in custom_types:
+            return custom_types[type]
         # Unsupported types
         raise ValueError(f"Unsupported type: {type}")
 
@@ -212,30 +216,39 @@ class SchemaBody:
     original: str
     schema: List[SbsvDataType]
 
-    def __init__(self, schema_body: str = None, tokens: List[str] = None):
+    def __init__(
+        self,
+        schema_body: str = None,
+        tokens: List[str] = None,
+        custom_types: Optional[Dict[str, Callable[[str], Any]]] = None,
+    ):
         if schema_body is None and tokens is None:
             raise ValueError("schema_body or tokens is required")
         self.original = schema_body
         self.schema = list()
+        if custom_types is None:
+            custom_types = dict()
         if tokens is None:
             tokens = lexer.tokenize(schema_body)
         if self.original is None:
             self.original = SchemaBody.format_tokens(tokens)
         for token in tokens:
-            self.schema.append(self.parse_schema_token(token))
+            self.schema.append(self.parse_schema_token(token, custom_types))
 
     @staticmethod
     def format_tokens(tokens: List[str]) -> str:
         return " ".join([f"[{token}]" for token in tokens])
 
     @staticmethod
-    def parse_schema_token(token: str) -> SbsvDataType:
+    def parse_schema_token(
+        token: str, custom_types: Dict[str, Callable[[str], Any]]
+    ) -> SbsvDataType:
         key, value = lexer.token_split_schema(token)
         if key == "":
             raise ValueError(f"Invalid schema token [{token}]: empty name")
         if value == "":
             raise ValueError(f"Invalid schema token [{token}]: missing type annotation")
-        return SbsvDataType(key, value)
+        return SbsvDataType(key, value, custom_types)
 
     def parse(self, tokens: List[str]) -> Dict[str, Any]:
         result = dict()
@@ -286,7 +299,11 @@ class Schema:
     body: SchemaBody
     data: List[SbsvData]
 
-    def __init__(self, s: str):
+    def __init__(
+        self,
+        s: str,
+        custom_types: Optional[Dict[str, Callable[[str], Any]]] = None,
+    ):
         self.original = s
         self.name = ""
         self.schema = list()
@@ -310,7 +327,7 @@ class Schema:
                 self.name = f"{self.name}${key}"
                 continue
             raise ValueError(f"Invalid schema token [{token}]: missing type annotation")
-        self.body = SchemaBody(tokens=body_tokens)
+        self.body = SchemaBody(tokens=body_tokens, custom_types=custom_types)
         self.schema = self.body.schema
         if len(self.schema) > 0 and self.schema[0].check_nullable():
             raise ValueError(
@@ -358,12 +375,19 @@ class IgnorePrefix:
     tokens: List[Tuple[str, Optional[SbsvDataType]]]
     save_ignored: bool
 
-    def __init__(self, prefix: str, save_ignored: bool = False):
+    def __init__(
+        self,
+        prefix: str,
+        save_ignored: bool = False,
+        custom_types: Optional[Dict[str, Callable[[str], Any]]] = None,
+    ):
         tokens = lexer.tokenize(prefix)
         if len(tokens) == 0:
             raise ValueError(f"Invalid ignore prefix {prefix}: too short")
         self.tokens = list()
         self.save_ignored = save_ignored
+        if custom_types is None:
+            custom_types = dict()
         for token in tokens:
             key, value = lexer.token_split_schema(token)
             if key == "":
@@ -373,7 +397,7 @@ class IgnorePrefix:
                 continue
             if value == "":
                 value = "str"
-            schema_type = SbsvDataType(key, value)
+            schema_type = SbsvDataType(key, value, custom_types)
             schema_type.name = key
             self.tokens.append((key, schema_type))
 
@@ -408,9 +432,15 @@ class IgnorePrefix:
 
 class body_parser:
     body: SchemaBody
+    custom_types: Dict[str, Callable[[str], Any]]
 
-    def __init__(self, schema_body: str):
-        self.body = SchemaBody(schema_body)
+    def __init__(
+        self,
+        schema_body: str,
+        custom_types: Optional[Dict[str, Callable[[str], Any]]] = None,
+    ):
+        self.custom_types = dict(custom_types or dict())
+        self.body = SchemaBody(schema_body, custom_types=self.custom_types)
 
     def loads(self, s: str) -> Dict[str, Any]:
         return self.parse_tokens(lexer.tokenize(s))
@@ -419,7 +449,7 @@ class body_parser:
         return self.body.parse(tokens)
 
     def add_custom_type(self, type_name: str, type_function: Callable[[str], Any]):
-        CUSTOM_TYPES[type_name] = type_function
+        self.custom_types[type_name] = type_function
         return self
 
 
@@ -427,11 +457,13 @@ class line_parser:
     schema: Dict[str, Schema]
     ignore_unknown: bool
     ignored_prefix: Optional[IgnorePrefix]
+    custom_types: Dict[str, Callable[[str], Any]]
 
     def __init__(self, ignore_unknown: bool = True):
         self.schema = dict()
         self.ignore_unknown = ignore_unknown
         self.ignored_prefix = None
+        self.custom_types = dict()
 
     @staticmethod
     def _build_parse_error_message(
@@ -465,18 +497,18 @@ class line_parser:
             raise ValueError(f"{method_name}() must be called before add_schema()")
 
     def add_schema(self, schema: str):
-        sc = Schema(schema)
+        sc = Schema(schema, custom_types=self.custom_types)
         self.schema[sc.name] = sc
         return self
 
     def ignore_prefix(self, prefix: str, save_ignored: bool = False):
         self._raise_if_schema_exists("ignore_prefix")
-        self.ignored_prefix = IgnorePrefix(prefix, save_ignored)
+        self.ignored_prefix = IgnorePrefix(prefix, save_ignored, self.custom_types)
         return self
 
     def add_custom_type(self, type_name: str, type_function: Callable[[str], Any]):
         self._raise_if_schema_exists("add_custom_type")
-        CUSTOM_TYPES[type_name] = type_function
+        self.custom_types[type_name] = type_function
         return self
 
     def parse_line(self, line: str, line_number: int = None) -> Optional[SbsvData]:
@@ -531,6 +563,7 @@ class parser(line_parser):
         result.schema = self.schema.copy()
         result.groups = self.groups.copy()
         result.ignored_prefix = self.ignored_prefix
+        result.custom_types = self.custom_types.copy()
         return result
 
     def get_global_id(self) -> int:
@@ -538,9 +571,9 @@ class parser(line_parser):
 
     def add_group(self, group_name: str, start_schema: str, end_schema: str):
         if Schema.need_parsing(start_schema):
-            start_schema = Schema(start_schema).name
+            start_schema = Schema(start_schema, custom_types=self.custom_types).name
         if Schema.need_parsing(end_schema):
-            end_schema = Schema(end_schema).name
+            end_schema = Schema(end_schema, custom_types=self.custom_types).name
 
         self.groups[group_name] = (
             self.schema[start_schema],
@@ -636,7 +669,7 @@ class parser(line_parser):
         pq = queue.PriorityQueue()
         for schema in schemas:
             if Schema.need_parsing(schema):
-                schema = Schema(schema).name
+                schema = Schema(schema, custom_types=self.custom_types).name
             if schema not in self.schema:
                 raise ValueError(f"Invalid schema {schema}")
             cur_schema = self.schema[schema]
@@ -656,7 +689,7 @@ class parser(line_parser):
         self, schema: str, index: Tuple[int, int]
     ) -> List[SbsvData]:
         if Schema.need_parsing(schema):
-            schema = Schema(schema).name
+            schema = Schema(schema, custom_types=self.custom_types).name
         if schema not in self.schema:
             raise ValueError(f"Invalid schema {schema}")
 
