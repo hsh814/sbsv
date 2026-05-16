@@ -24,6 +24,12 @@ Issues = "https://github.com/hsh814/sbsv/issues"
 [tool.hatch.version]
 path = "sbsv/__init__.py"
 
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "libsbsv/**",
+  "sbsv-rs/**",
+]
+
 [tool.black]
 line-length = 88
 target-version = ['py38']
