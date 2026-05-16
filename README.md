@@ -83,6 +83,7 @@ result["necessary"]["from"] == {
 }
 ```
 `save_ignored` is optional, and default is False.
+Call `ignore_prefix()` before adding any schema. It raises `ValueError` if a schema already exists.
 
 ### Duplicating names
 Sometimes, you may want to use same name multiple times. You can distinguish them using additional tags.
@@ -236,6 +237,7 @@ use index
 
 ### Primitive types
 Primitive types are `str`, `int`, `float`, `bool`, `null`.
+Schema types are checked when `add_schema()` is called. Unknown types, including unknown list subtypes, raise `ValueError`.
 
 ### Complex types
 
@@ -283,7 +285,8 @@ result = parser.loads("""
 ```
 
 Notes:
-- Register custom types before adding schemas that reference them for best performance.
+- Register custom types before adding any schema. `add_custom_type()` raises `ValueError` if a schema already exists.
+- Schemas that reference an unregistered custom type raise `ValueError`.
 
 ## Utilities
 ### Line parser (stateless)

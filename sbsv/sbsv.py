@@ -151,6 +151,23 @@ class SbsvDataType:
             return False
         raise ValueError(f"Invalid boolean value: {value}")
 
+    @staticmethod
+    def to_null(value: str) -> None:
+        if value.strip().lower() == "null":
+            return None
+        raise ValueError(f"Invalid null value: {value}")
+
+    @staticmethod
+    def list_sub_type(type: str) -> Optional[str]:
+        if not type.startswith("list"):
+            return None
+        if not type.startswith("list[") or not type.endswith("]"):
+            raise ValueError(f"Invalid list type: {type}")
+        sub_type = type[5:-1]
+        if sub_type == "":
+            raise ValueError(f"Invalid list type: {type}")
+        return sub_type
+
     def add_converter(self, type: str) -> Callable[[str], Any]:
         # Primitive types
         if type == "int":
@@ -161,28 +178,25 @@ class SbsvDataType:
             return str
         if type == "bool":
             return SbsvDataType.to_bool
+        if type == "null":
+            return SbsvDataType.to_null
         # Complex types
-        if type.startswith("list"):
-            sub_type = type[5:-1]
-            return lambda x: [
-                SbsvDataType(sub_type, sub_type).convert(v) for v in lexer.tokenize(x)
-            ]
+        sub_type = SbsvDataType.list_sub_type(type)
+        if sub_type is not None:
+            sub_converter = SbsvDataType(sub_type, sub_type)
+            return lambda x: [sub_converter.convert(v) for v in lexer.tokenize(x)]
         # Custom types
         if type in CUSTOM_TYPES:
             return CUSTOM_TYPES[type]
         # Unsupported types
-        return None
+        raise ValueError(f"Unsupported type: {type}")
 
     def convert(self, value: str) -> Any:
         if value == "" and self.nullable:
             return None
         if self.converter is not None:
             return self.converter(value)
-        # Late-bound custom type
-        if self.type in CUSTOM_TYPES:
-            self.converter = CUSTOM_TYPES[self.type]
-            return self.converter(value)
-        return value
+        raise ValueError(f"Unsupported type: {self.type}")
 
     def key(self) -> str:
         return self.name_with_tag
@@ -446,16 +460,22 @@ class line_parser:
             raise ValueError(f"Unknown schema '{schema_name}'")
         return self.schema[name]
 
+    def _raise_if_schema_exists(self, method_name: str):
+        if len(self.schema) > 0:
+            raise ValueError(f"{method_name}() must be called before add_schema()")
+
     def add_schema(self, schema: str):
         sc = Schema(schema)
         self.schema[sc.name] = sc
         return self
 
     def ignore_prefix(self, prefix: str, save_ignored: bool = False):
+        self._raise_if_schema_exists("ignore_prefix")
         self.ignored_prefix = IgnorePrefix(prefix, save_ignored)
         return self
 
     def add_custom_type(self, type_name: str, type_function: Callable[[str], Any]):
+        self._raise_if_schema_exists("add_custom_type")
         CUSTOM_TYPES[type_name] = type_function
         return self
 

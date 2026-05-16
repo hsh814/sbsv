@@ -12,10 +12,20 @@ class TestCustomType(unittest.TestCase):
         self.assertEqual(result["data"][0]["id"], 255)
         self.assertEqual(result["data"][0]["vals"], [10, 11, 16])
 
-    def test_custom_type_late_registration(self):
+    def test_custom_type_late_registration_rejected(self):
         p = sbsv.parser()
-        p.add_schema("[d] [v: hex2]")
-        # Register after schema
-        p.add_custom_type("hex2", lambda x: int(x, 16))
-        result = p.loads("[d] [v 1a]\n")
-        self.assertEqual(result["d"][0]["v"], 26)
+        with self.assertRaises(ValueError):
+            p.add_schema("[d] [v: hex2]")
+
+    def test_add_custom_type_after_schema_rejected(self):
+        p = sbsv.parser()
+        p.add_schema("[d] [v: str]")
+
+        with self.assertRaises(ValueError):
+            p.add_custom_type("hex3", lambda x: int(x, 16))
+
+    def test_unknown_list_sub_type_rejected(self):
+        p = sbsv.parser()
+
+        with self.assertRaises(ValueError):
+            p.add_schema("[d] [v: list[hex4]]")

@@ -66,6 +66,13 @@ class TestParser(unittest.TestCase):
         self.assertEqual(row["$log_level"], "DEBUG")
         self.assertEqual(row["this"], "part")
 
+    def test_ignore_prefix_after_schema_rejected(self):
+        parser = sbsv.parser()
+        parser.add_schema("[necessary] [from] [this: str]")
+
+        with self.assertRaises(ValueError):
+            parser.ignore_prefix("[$timestamp] [$log_level]")
+
     def test_error_message_with_unknown_schema_context(self):
         parser = sbsv.parser(ignore_unknown=False)
         parser.add_schema("[node] [id: int]")
