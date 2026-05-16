@@ -194,10 +194,82 @@ class SbsvDataType:
         return self.name == name
 
 
+class SchemaBody:
+    original: str
+    schema: List[SbsvDataType]
+
+    def __init__(self, schema_body: str = None, tokens: List[str] = None):
+        if schema_body is None and tokens is None:
+            raise ValueError("schema_body or tokens is required")
+        self.original = schema_body
+        self.schema = list()
+        if tokens is None:
+            tokens = lexer.tokenize(schema_body)
+        if self.original is None:
+            self.original = SchemaBody.format_tokens(tokens)
+        for token in tokens:
+            self.schema.append(self.parse_schema_token(token))
+
+    @staticmethod
+    def format_tokens(tokens: List[str]) -> str:
+        return " ".join([f"[{token}]" for token in tokens])
+
+    @staticmethod
+    def parse_schema_token(token: str) -> SbsvDataType:
+        key, value = lexer.token_split_schema(token)
+        if key == "":
+            raise ValueError(f"Invalid schema token [{token}]: empty name")
+        if value == "":
+            raise ValueError(f"Invalid schema token [{token}]: missing type annotation")
+        return SbsvDataType(key, value)
+
+    def parse(self, tokens: List[str]) -> Dict[str, Any]:
+        result = dict()
+        if len(tokens) < len(self.schema):
+            raise ValueError(
+                "Invalid data: expected at least "
+                f"{len(self.schema)} fields, got {len(tokens)} "
+                f"in {SchemaBody.format_tokens(tokens)}"
+            )
+        q = queue.Queue(len(tokens))
+        for token in tokens:
+            q.put(token)
+        for schema_type in self.schema:
+            done = False
+            while not q.empty():
+                elem = q.get()
+                key, value = lexer.token_split_default(elem)
+                if key == "":
+                    raise ValueError(f"Invalid data token [{elem}]: empty name")
+                if not schema_type.check_name(key):
+                    continue
+                if value == "" and not schema_type.check_nullable():
+                    raise ValueError(
+                        f"Invalid data token [{elem}]: empty value for "
+                        f"non-nullable key '{schema_type.name}'"
+                    )
+                try:
+                    result[schema_type.key()] = schema_type.convert(value)
+                except Exception as e:
+                    raise ValueError(
+                        f"Invalid value for key '{schema_type.name}' "
+                        f"as type '{schema_type.type}': {value!r}"
+                    ) from e
+                done = True
+                break
+            if not done:
+                raise ValueError(
+                    f"Invalid data: missing key '{schema_type.name}' "
+                    f"in {SchemaBody.format_tokens(tokens)}"
+                )
+        return result
+
+
 class Schema:
     original: str
     name: str
     schema: List[SbsvDataType]
+    body: SchemaBody
     data: List[SbsvData]
 
     def __init__(self, s: str):
@@ -209,17 +281,28 @@ class Schema:
         if len(tokens) == 0:
             raise ValueError(f"Invalid schema {s}: too short")
         self.name = tokens[0]
+        body_tokens = list()
+        body_started = False
         for i in range(1, len(tokens)):
-            key, value = lexer.token_split_default(tokens[i])
+            token = tokens[i]
+            key, value = lexer.token_split_default(token)
             if key == "":
-                raise ValueError(f"Invalid schema {tokens[i]}: empty name")
-            # Sub schema
-            if value == "":
+                raise ValueError(f"Invalid schema token [{token}]: empty name")
+            if ":" in token:
+                body_started = True
+                body_tokens.append(token)
+                continue
+            if not body_started and value == "":
                 self.name = f"{self.name}${key}"
                 continue
-            key, value = lexer.token_split_schema(tokens[i])
-            # Normal schema
-            self.schema.append(SbsvDataType(key, value))
+            raise ValueError(f"Invalid schema token [{token}]: missing type annotation")
+        self.body = SchemaBody(tokens=body_tokens)
+        self.schema = self.body.schema
+        if len(self.schema) > 0 and self.schema[0].check_nullable():
+            raise ValueError(
+                f"Invalid schema {s}: first body field "
+                f"'{self.schema[0].name_with_tag}' cannot be nullable"
+            )
 
     @staticmethod
     def need_parsing(s: str) -> bool:
@@ -228,6 +311,10 @@ class Schema:
     @staticmethod
     def preprocess(line: str) -> Tuple[str, List[str]]:
         tokens = lexer.tokenize(line)
+        return Schema.extract_schema_and_body_tokens(tokens)
+
+    @staticmethod
+    def extract_schema_and_body_tokens(tokens: List[str]) -> Tuple[str, List[str]]:
         name: str = None
         data: List[str] = list()
         may_have_sub_schema = True
@@ -244,29 +331,7 @@ class Schema:
         return name, data
 
     def parse(self, tokens: List[str]) -> Dict[str, Any]:
-        result = dict()
-        if len(tokens) < len(self.schema):
-            raise ValueError(f"Invalid data {tokens}: too short")
-        q = queue.Queue(len(tokens))
-        for token in tokens:
-            q.put(token)
-        for schema_type in self.schema:
-            done = False
-            while not q.empty():
-                elem = q.get()
-                key, value = lexer.token_split_default(elem)
-                if key == "":
-                    raise ValueError(f"Invalid data {elem}: empty name")
-                if not schema_type.check_name(key):
-                    continue
-                if value == "" and not schema_type.check_nullable():
-                    raise ValueError(f"Invalid data {elem}: empty value")
-                result[schema_type.key()] = schema_type.convert(value)
-                done = True
-                break
-            if not done:
-                raise ValueError(f"Invalid data {tokens}: missing key")
-        return result
+        return self.body.parse(tokens)
 
     def get_data(self) -> List[SbsvData]:
         return self.data
@@ -275,22 +340,29 @@ class Schema:
         self.data.append(data)
 
 
-class parser:
-    data: List[SbsvData]
-    groups: Dict[str, Tuple[Schema, Schema, List[Tuple[int, int]]]]
-    group_start: Dict[str, int]
-    group_end: Dict[str, str]
-    result: dict
+class body_parser:
+    body: SchemaBody
+
+    def __init__(self, schema_body: str):
+        self.body = SchemaBody(schema_body)
+
+    def loads(self, s: str) -> Dict[str, Any]:
+        return self.parse_tokens(lexer.tokenize(s))
+
+    def parse_tokens(self, tokens: List[str]) -> Dict[str, Any]:
+        return self.body.parse(tokens)
+
+    def add_custom_type(self, type_name: str, type_function: Callable[[str], Any]):
+        CUSTOM_TYPES[type_name] = type_function
+        return self
+
+
+class line_parser:
     schema: Dict[str, Schema]
     ignore_unknown: bool
 
     def __init__(self, ignore_unknown: bool = True):
-        self.data = list()
-        self.result = dict()
         self.schema = dict()
-        self.groups = dict()
-        self.group_start = dict()
-        self.group_end = dict()
         self.ignore_unknown = ignore_unknown
 
     @staticmethod
@@ -298,6 +370,7 @@ class parser:
         original_error: Exception,
         line_number: int = None,
         schema_name: str = None,
+        line: str = None,
     ) -> str:
         error_message = str(original_error)
         context = list()
@@ -305,9 +378,66 @@ class parser:
             context.append(f"line={line_number}")
         if schema_name is not None:
             context.append(f"schema={schema_name}")
+        if line is not None:
+            context.append(f"input={line!r}")
         if len(context) == 0:
             return error_message
         return f"Parse error ({', '.join(context)}): {error_message}"
+
+    def match_schema(self, name: str, line_number: int = None) -> Optional[Schema]:
+        if name not in self.schema:
+            if self.ignore_unknown:
+                return None
+            schema_name = name if name is not None else "<missing>"
+            raise ValueError(f"Unknown schema '{schema_name}'")
+        return self.schema[name]
+
+    def add_schema(self, schema: str):
+        sc = Schema(schema)
+        self.schema[sc.name] = sc
+        return self
+
+    def add_custom_type(self, type_name: str, type_function: Callable[[str], Any]):
+        CUSTOM_TYPES[type_name] = type_function
+        return self
+
+    def parse_line(self, line: str, line_number: int = None) -> Optional[SbsvData]:
+        line = line.strip()
+        if len(line) == 0 or line.startswith("#"):
+            return None
+        schema_name = None
+        try:
+            schema_name, tokens = Schema.preprocess(line)
+            sc = self.match_schema(schema_name, line_number)
+            if sc is None:
+                return None
+            row = sc.parse(tokens)
+            return SbsvData(sc.name, row, -1)
+        except ValueError as e:
+            raise ValueError(
+                line_parser._build_parse_error_message(
+                    e, line_number, schema_name, line
+                )
+            ) from e
+
+    def loads(self, s: str) -> Optional[SbsvData]:
+        return self.parse_line(s)
+
+
+class parser(line_parser):
+    data: List[SbsvData]
+    groups: Dict[str, Tuple[Schema, Schema, List[Tuple[int, int]]]]
+    group_start: Dict[str, int]
+    group_end: Dict[str, str]
+    result: dict
+
+    def __init__(self, ignore_unknown: bool = True):
+        super().__init__(ignore_unknown)
+        self.data = list()
+        self.result = dict()
+        self.groups = dict()
+        self.group_start = dict()
+        self.group_end = dict()
 
     # New parser with same schema
     def clone(self) -> "parser":
@@ -318,22 +448,6 @@ class parser:
 
     def get_global_id(self) -> int:
         return len(self.data)
-
-    def match_schema(self, name: str, line_number: int = None) -> Optional[Schema]:
-        if name not in self.schema:
-            if self.ignore_unknown:
-                return None
-            raise ValueError(f"Invalid schema {name} at line {line_number}")
-        return self.schema[name]
-
-    def add_schema(self, schema: str):
-        # 1. tokenize
-        sc = Schema(schema)
-        self.schema[sc.name] = sc
-
-    def add_custom_type(self, type_name: str, type_function: Callable[[str], Any]):
-        CUSTOM_TYPES[type_name] = type_function
-        return self
 
     def add_group(self, group_name: str, start_schema: str, end_schema: str):
         if Schema.need_parsing(start_schema):
@@ -409,21 +523,10 @@ class parser:
                 self.group_start[schema.name] = cur_id
 
     def parse_line(self, line: str, line_number: int = None):
-        line = line.strip()
-        if len(line) == 0 or line.startswith("#"):
+        sbsv_data = super().parse_line(line, line_number)
+        if sbsv_data is None:
             return
-        schema_name, tokens = Schema.preprocess(line)
-        try:
-            sc = self.match_schema(schema_name, line_number)
-            if sc is None:
-                return
-            schema_name = sc.name
-            row = sc.parse(tokens)
-            self.append_row_to_data(sc, row)
-        except ValueError as e:
-            raise ValueError(
-                parser._build_parse_error_message(e, line_number, schema_name)
-            ) from e
+        self.append_row_to_data(self.schema[sbsv_data.schema_name], sbsv_data.data)
 
     def load(self, fp: TextIO) -> dict:
         for line_number, line in enumerate(fp, start=1):

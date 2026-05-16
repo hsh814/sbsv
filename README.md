@@ -280,7 +280,7 @@ Notes:
 - Register custom types before adding schemas that reference them for best performance.
 
 ## Utilities
-### Line parser (stateless) (TODO)
+### Line parser (stateless)
 If you want to parse single line, you can use `line_parser`
 ```python
 parser = sbsv.line_parser()
@@ -293,7 +293,7 @@ result = parser.loads("[node] [id 1] [value 2]")
 You cannot use `parser.get_result()` or `parser.get_result_in_order()` for `line_parser` - it does not store results in parser, but return directly.
 This can be useful in cases like parsing log lines one by one, without storing them in memory. 
 
-### Body parser (TODO)
+### Body parser (stateless)
 ```python
 parser = sbsv.body_parser("[id: int] [value: int]")
 result = parser.loads("[id 1] [value 2]")
