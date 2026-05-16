@@ -38,6 +38,34 @@ class TestParser(unittest.TestCase):
         self.assertEqual(result["mem"]["both"][1]["id$pos"], "myid3")
         self.assertEqual(result["mem"]["both"][1]["file$pos"], "myfile3!")
 
+    def test_ignore_prefix(self):
+        parser = sbsv.parser()
+        parser.ignore_prefix("[$timestamp] [$log_level]")
+        parser.add_schema("[necessary] [from] [this: str]")
+
+        result = parser.loads(
+            "[2024-03-04 13:22:56] [DEBUG] [necessary] [from] [this part]\n"
+        )
+
+        row = result["necessary"]["from"][0]
+        self.assertEqual(row["this"], "part")
+        self.assertNotIn("$timestamp", row)
+        self.assertNotIn("$log_level", row)
+
+    def test_ignore_prefix_save_ignored(self):
+        parser = sbsv.parser()
+        parser.ignore_prefix("[$timestamp] [$log_level]", save_ignored=True)
+        parser.add_schema("[necessary] [from] [this: str]")
+
+        result = parser.loads(
+            "[2024-03-04 13:22:56] [DEBUG] [necessary] [from] [this part]\n"
+        )
+
+        row = result["necessary"]["from"][0]
+        self.assertEqual(row["$timestamp"], "2024-03-04 13:22:56")
+        self.assertEqual(row["$log_level"], "DEBUG")
+        self.assertEqual(row["this"], "part")
+
     def test_error_message_with_unknown_schema_context(self):
         parser = sbsv.parser(ignore_unknown=False)
         parser.add_schema("[node] [id: int]")

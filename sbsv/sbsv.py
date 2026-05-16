@@ -340,6 +340,58 @@ class Schema:
         self.data.append(data)
 
 
+class IgnorePrefix:
+    tokens: List[Tuple[str, Optional[SbsvDataType]]]
+    save_ignored: bool
+
+    def __init__(self, prefix: str, save_ignored: bool = False):
+        tokens = lexer.tokenize(prefix)
+        if len(tokens) == 0:
+            raise ValueError(f"Invalid ignore prefix {prefix}: too short")
+        self.tokens = list()
+        self.save_ignored = save_ignored
+        for token in tokens:
+            key, value = lexer.token_split_schema(token)
+            if key == "":
+                raise ValueError(f"Invalid ignore prefix token [{token}]: empty name")
+            if not key.startswith("$"):
+                self.tokens.append((key, None))
+                continue
+            if value == "":
+                value = "str"
+            schema_type = SbsvDataType(key, value)
+            schema_type.name = key
+            self.tokens.append((key, schema_type))
+
+    def parse_tokens(self, tokens: List[str]) -> Tuple[List[str], Dict[str, Any]]:
+        if len(tokens) < len(self.tokens):
+            raise ValueError(
+                "Invalid data: expected at least "
+                f"{len(self.tokens)} ignored prefix fields, got {len(tokens)} "
+                f"in {SchemaBody.format_tokens(tokens)}"
+            )
+        ignored = dict()
+        for i in range(len(self.tokens)):
+            expected, schema_type = self.tokens[i]
+            actual = tokens[i]
+            if schema_type is None:
+                if actual != expected:
+                    raise ValueError(
+                        f"Invalid ignored prefix token [{actual}]: "
+                        f"expected [{expected}]"
+                    )
+                continue
+            if self.save_ignored:
+                try:
+                    ignored[schema_type.key()] = schema_type.convert(actual)
+                except Exception as e:
+                    raise ValueError(
+                        f"Invalid ignored prefix value for key '{schema_type.name}' "
+                        f"as type '{schema_type.type}': {actual!r}"
+                    ) from e
+        return tokens[len(self.tokens) :], ignored
+
+
 class body_parser:
     body: SchemaBody
 
@@ -360,10 +412,12 @@ class body_parser:
 class line_parser:
     schema: Dict[str, Schema]
     ignore_unknown: bool
+    ignored_prefix: Optional[IgnorePrefix]
 
     def __init__(self, ignore_unknown: bool = True):
         self.schema = dict()
         self.ignore_unknown = ignore_unknown
+        self.ignored_prefix = None
 
     @staticmethod
     def _build_parse_error_message(
@@ -397,6 +451,10 @@ class line_parser:
         self.schema[sc.name] = sc
         return self
 
+    def ignore_prefix(self, prefix: str, save_ignored: bool = False):
+        self.ignored_prefix = IgnorePrefix(prefix, save_ignored)
+        return self
+
     def add_custom_type(self, type_name: str, type_function: Callable[[str], Any]):
         CUSTOM_TYPES[type_name] = type_function
         return self
@@ -407,11 +465,19 @@ class line_parser:
             return None
         schema_name = None
         try:
-            schema_name, tokens = Schema.preprocess(line)
+            tokens = lexer.tokenize(line)
+            ignored = dict()
+            if self.ignored_prefix is not None:
+                tokens, ignored = self.ignored_prefix.parse_tokens(tokens)
+            schema_name, tokens = Schema.extract_schema_and_body_tokens(tokens)
             sc = self.match_schema(schema_name, line_number)
             if sc is None:
                 return None
             row = sc.parse(tokens)
+            if len(ignored) > 0:
+                saved_row = ignored.copy()
+                saved_row.update(row)
+                row = saved_row
             return SbsvData(sc.name, row, -1)
         except ValueError as e:
             raise ValueError(
@@ -444,6 +510,7 @@ class parser(line_parser):
         result = parser(self.ignore_unknown)
         result.schema = self.schema.copy()
         result.groups = self.groups.copy()
+        result.ignored_prefix = self.ignored_prefix
         return result
 
     def get_global_id(self) -> int:

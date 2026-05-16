@@ -65,7 +65,7 @@ But if you add sub schema, you cannot add new schema with same schema name witho
 # this will cause error
 ```
 
-### Ignore (TODO)
+### Ignore
 ```
 [2024-03-04 13:22:56] [DEBUG] [necessary] [from] [this part]
 ```
@@ -73,10 +73,16 @@ Regular log file may contain unnecessary data. You can specify parser to ignore 
 
 ```python
 # This will ignore first two elements for all lines.
-parser.ignore_prefix("[$timestamp] [$log_level]")
+parser.ignore_prefix("[$timestamp] [$log_level]", save_ignored=True)
 parser.add_schema("[necessary] [from] [this: str]")
+result = parser.loads("[2024-03-04 13:22:56] [DEBUG] [necessary] [from] [this part]")
+result["necessary"]["from"] == {
+  "$timestamp": "2024-03-04 13:22:56",
+  "$log_level": "DEBUG",
+  "this": "part",
+}
 ```
-You can use `parser.ignore_prefix("[$timestamp] [$log_level]", save_ignored=True)` to save ignored data in result.
+`save_ignored` is optional, and default is False.
 
 ### Duplicating names
 Sometimes, you may want to use same name multiple times. You can distinguish them using additional tags.
