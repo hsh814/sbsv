@@ -1,7 +1,15 @@
 from typing import List, Dict, Tuple, TextIO, Callable, Any, Optional
 import queue
+import re
 from .utils import unescape_str
 import enum
+
+NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def validate_name(name: str, context: str):
+    if NAME_PATTERN.match(name) is None:
+        raise ValueError(f"Invalid {context} name '{name}': use only [A-Za-z0-9_-]")
 
 
 class TokenType(enum.Enum):
@@ -149,8 +157,11 @@ class SbsvDataType:
         self.name_with_tag = name_with_tag
         if "$" in self.name_with_tag:
             tokens = self.name_with_tag.split("$")
+            for token in tokens:
+                validate_name(token, "schema field")
             self.name = tokens[0]
         else:
+            validate_name(name_with_tag, "schema field")
             self.name = name_with_tag
         self.type = type
         self.converter = self.add_converter(type, custom_types or dict())
@@ -326,6 +337,7 @@ class Schema:
         if len(tokens) == 0:
             raise ValueError(f"Invalid schema {s}: too short")
         self.name = tokens[0]
+        validate_name(self.name, "schema")
         body_tokens = list()
         body_started = False
         for i in range(1, len(tokens)):
@@ -338,6 +350,7 @@ class Schema:
                 body_tokens.append(token)
                 continue
             if not body_started and value == "":
+                validate_name(key, "sub-schema")
                 self.name = f"{self.name}${key}"
                 continue
             raise ValueError(f"Invalid schema token [{token}]: missing type annotation")
@@ -409,9 +422,11 @@ class IgnorePrefix:
             if not key.startswith("$"):
                 self.tokens.append((key, None))
                 continue
+            validate_name(key[1:], "ignored prefix")
             if value == "":
                 value = "str"
-            schema_type = SbsvDataType(key, value, custom_types)
+            schema_type = SbsvDataType(key[1:], value, custom_types)
+            schema_type.name_with_tag = key
             schema_type.name = key
             self.tokens.append((key, schema_type))
 
@@ -510,8 +525,22 @@ class line_parser:
         if len(self.schema) > 0:
             raise ValueError(f"{method_name}() must be called before add_schema()")
 
+    def _raise_if_schema_conflicts(self, schema_name: str):
+        if schema_name in self.schema:
+            raise ValueError(f"Schema '{schema_name}' already exists")
+        new_parts = schema_name.split("$")
+        for existing_name in self.schema:
+            existing_parts = existing_name.split("$")
+            min_len = min(len(new_parts), len(existing_parts))
+            if new_parts[:min_len] == existing_parts[:min_len]:
+                raise ValueError(
+                    f"Schema '{schema_name}' conflicts with existing schema "
+                    f"'{existing_name}'"
+                )
+
     def add_schema(self, schema: str):
         sc = Schema(schema, custom_types=self.custom_types)
+        self._raise_if_schema_conflicts(sc.name)
         self.schema[sc.name] = sc
         return self
 

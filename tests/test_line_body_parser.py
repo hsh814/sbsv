@@ -17,6 +17,10 @@ class TestBodyParser(unittest.TestCase):
 
         self.assertEqual(result, {"id": None, "value": 2})
 
+    def test_body_parser_rejects_invalid_field_name(self):
+        with self.assertRaises(ValueError):
+            sbsv.body_parser("[bad.name: int]")
+
     def test_body_parser_as_custom_type(self):
         parser = sbsv.parser()
         body = sbsv.body_parser("[id: int] [value: int]")

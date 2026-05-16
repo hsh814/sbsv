@@ -34,10 +34,11 @@ with open("testfile.sbsv", "r") as f:
   result = parser.load(f)
 ```
 
-Result would looks like:
+`parser.load()` returns lists of `SbsvData` rows. Each row supports `row["field"]`
+access, and its `.data` dictionary would look like:
 ```
 {
-  "meta-data": [{"id": 1, "format": "string"}, {"id": 2, "format": "string"}],
+  "meta-data": [{"id": 1, "format": "string"}, {"id": 2, "format": "token"}],
   "data": {
     "string": [{"id": 1, "actual": "some long string..."}],
     "token": [{"id": 2, "actual": ["some", "multiple", "tokens"]}]
@@ -76,11 +77,10 @@ Regular log file may contain unnecessary data. You can specify parser to ignore 
 parser.ignore_prefix("[$timestamp] [$log_level]", save_ignored=True)
 parser.add_schema("[necessary] [from] [this: str]")
 result = parser.loads("[2024-03-04 13:22:56] [DEBUG] [necessary] [from] [this part]")
-result["necessary"]["from"] == {
-  "$timestamp": "2024-03-04 13:22:56",
-  "$log_level": "DEBUG",
-  "this": "part",
-}
+row = result["necessary"]["from"][0]
+row["$timestamp"] == "2024-03-04 13:22:56"
+row["$log_level"] == "DEBUG"
+row["this"] == "part"
 ```
 `save_ignored` is optional, and default is False.
 Call `ignore_prefix()` before adding any schema. It raises `ValueError` if a schema already exists.
@@ -104,7 +104,7 @@ The sequence of the names should not be changed.
 parser.add_schema("[my-schema] [node: int] [value: int]")
 data = "[my-schema] [node 1] [unknown element] [value 3]\n"
 result = parser.loads(data)
-result["my-schema"][0] == { "node": 1, "value": 3 }
+result["my-schema"][0].data == { "node": 1, "value": 3 }
 ```
 
 ### Ordering
@@ -250,10 +250,11 @@ Schema types are checked when `add_schema()` is called. Unknown types, including
 ```python
 parser.add_schema("[car] [id: int] [speed: int] [power: int] [price?: int]")
 ```
-Note: currently, not applicable for first element.
+The first body field of a full line schema cannot be nullable. The following raises `ValueError`:
 ```python
 parser.add_schema("[car] [id?: int] [speed: int] [power: int] [price: int]")
 ```
+`body_parser` accepts nullable first fields because it has no schema-name prefix to match.
 
 #### list
 ```
@@ -321,6 +322,11 @@ parser.add_schema("[data] [val: mytype]")
 result = parser.loads("[data] [val [id 1] [value 2]]")
 # result["data"][0]["val"] == {"id": 1, "value": 2}
 ```
+If a body parser schema uses custom types, pass them when constructing the body parser:
+```python
+parser = sbsv.body_parser("[id: hex]", custom_types={"hex": lambda x: int(x, 16)})
+parser.loads("[id ff]") == {"id": 255}
+```
 
 ### Escape sequences for string
 Quoted strings keep internal `[` and `]` as string content. Escape internal quotes with `\"`.
@@ -340,6 +346,7 @@ Use `sbsv.escape_str()` to get an unquoted escaped string and `sbsv.escape_str(.
 sbsv.escape_str("[name with square bracket]") == "[name with square bracket]"
 sbsv.escape_str("[name with square bracket]", quote=True) == '"[name with square bracket]"'
 ```
+Quoted strings are strict: unknown escape sequences, unescaped internal quotes, trailing escapes, and unterminated quotes raise `ValueError`.
 
 ## Contribute
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/#standalone-installer)

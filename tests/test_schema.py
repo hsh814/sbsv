@@ -58,3 +58,36 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(result["node"][0]["value$0"], 2)
         self.assertEqual(result["node"][0]["id$1"], 3)
         self.assertEqual(result["node"][0]["value$1"], 4)
+
+    def test_schema_rejects_invalid_names(self):
+        parser = sbsv.parser()
+
+        with self.assertRaises(ValueError):
+            parser.add_schema("[bad.name] [id: int]")
+        with self.assertRaises(ValueError):
+            parser.add_schema("[node] [bad.name: int]")
+        with self.assertRaises(ValueError):
+            parser.add_schema("[node] [bad.sub] [id: int]")
+        with self.assertRaises(ValueError):
+            parser.add_schema("[node] [id$bad.tag: int]")
+
+    def test_schema_rejects_root_sub_schema_conflicts(self):
+        parser = sbsv.parser()
+        parser.add_schema("[graph] [node] [id: int]")
+
+        with self.assertRaises(ValueError):
+            parser.add_schema("[graph] [node] [id: int]")
+        with self.assertRaises(ValueError):
+            parser.add_schema("[graph] [id: int]")
+
+        parser = sbsv.parser()
+        parser.add_schema("[graph] [id: int]")
+
+        with self.assertRaises(ValueError):
+            parser.add_schema("[graph] [node] [id: int]")
+
+        parser = sbsv.parser()
+        parser.add_schema("[graph] [node] [id: int]")
+
+        with self.assertRaises(ValueError):
+            parser.add_schema("[graph] [node] [child: int]")

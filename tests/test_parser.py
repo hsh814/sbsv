@@ -73,6 +73,12 @@ class TestParser(unittest.TestCase):
         with self.assertRaises(ValueError):
             parser.ignore_prefix("[$timestamp] [$log_level]")
 
+    def test_ignore_prefix_rejects_invalid_capture_name(self):
+        parser = sbsv.parser()
+
+        with self.assertRaises(ValueError):
+            parser.ignore_prefix("[$bad.name]")
+
     def test_error_message_with_unknown_schema_context(self):
         parser = sbsv.parser(ignore_unknown=False)
         parser.add_schema("[node] [id: int]")
