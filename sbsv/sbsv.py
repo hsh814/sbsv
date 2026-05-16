@@ -1,6 +1,6 @@
 from typing import List, Dict, Tuple, TextIO, Callable, Any, Optional
 import queue
-from .utils import get_schema_id, get_schema_name_list, escape_str, unescape_str
+from .utils import unescape_str
 import enum
 
 
@@ -22,11 +22,15 @@ class lexer:
         pass
 
     @staticmethod
-    def update_token(result: List[str], current: str, should_replace: bool):
-        current = current.strip()
-        if should_replace:
-            current = unescape_str(current)
-        result.append(current)
+    def update_token(result: List[str], current: str):
+        result.append(current.strip())
+
+    @staticmethod
+    def can_start_quote(current: str) -> bool:
+        stripped = current.strip()
+        if stripped == "":
+            return True
+        return current[-1].isspace() and len(stripped.split()) == 1
 
     @staticmethod
     def tokenize(line: str) -> List[str]:
@@ -34,34 +38,42 @@ class lexer:
         level = 0
         current = ""
         escape = False
-        should_replace = False
+        quote = False
         for c in range(len(line)):
             char = line[c]
             if escape:
                 escape = False
-                current += "\\" + char
+                if level > 0:
+                    current += "\\" + char
                 continue
-            if char == "\\":
+            if char == "\\" and level > 0:
                 escape = True
-                should_replace = True
                 continue
-            if char == "[":
+            if char == '"' and level > 0 and (quote or lexer.can_start_quote(current)):
+                quote = not quote
+                current += char
+                continue
+            if char == "[" and not quote:
                 level += 1
                 if level == 1:
                     if len(current.strip()) > 0:
-                        lexer.update_token(result, current, should_replace)
-                        should_replace = False
+                        lexer.update_token(result, current)
                     current = ""
                     continue
-            elif char == "]":
+            elif char == "]" and not quote:
                 level -= 1
                 if level == 0:
-                    lexer.update_token(result, current, should_replace)
-                    should_replace = False
+                    lexer.update_token(result, current)
                     current = ""
                     continue
             if level > 0:
                 current += char
+        if escape and level > 0:
+            current += "\\"
+        if quote:
+            raise ValueError("Invalid data: unterminated quoted string")
+        if level > 0:
+            raise ValueError("Invalid data: unterminated bracket")
         return result
 
     @staticmethod
@@ -70,8 +82,8 @@ class lexer:
         if len(tokens) == 0:
             return "", ""
         if len(tokens) == 1:
-            return tokens[0].strip(), ""
-        return tokens[0].strip(), tokens[1].strip()
+            return unescape_str(tokens[0].strip()), ""
+        return unescape_str(tokens[0].strip()), tokens[1].strip()
 
     @staticmethod
     def token_split_default(token: str) -> Tuple[str, str]:
@@ -199,6 +211,8 @@ class SbsvDataType:
         if value == "" and self.nullable:
             return None
         if self.converter is not None:
+            if SbsvDataType.list_sub_type(self.type) is None:
+                value = unescape_str(value)
             return self.converter(value)
         raise ValueError(f"Unsupported type: {self.type}")
 

@@ -323,11 +323,23 @@ result = parser.loads("[data] [val [id 1] [value 2]]")
 ```
 
 ### Escape sequences for string
+Quoted strings keep internal `[` and `]` as string content. Escape internal quotes with `\"`.
 ```
-[car] [id 1] [name "\[name with square bracket\]"]
-f"[car] [id {id}] [name {sbsv.escape_str("[name with square bracket]")}]"
+[car] [id 1] [name "[name with square bracket]"]
+[car] [id 2] [name "name with \"quote\""]
 ```
-Use `sbsv.escape_str()` to get escaped string and `sbsv.unescape_str()` to get original string from escaped string.
+
+Unquoted strings can contain balanced brackets without escaping. Escape unmatched brackets when they should be part of the string.
+```
+[car] [id 3] [name [name with square bracket]]
+[car] [id 4] [name name with unmatched \] bracket]
+```
+
+Use `sbsv.escape_str()` to get an unquoted escaped string and `sbsv.escape_str(..., quote=True)` to get a quoted string. `sbsv.unescape_str()` decodes either form.
+```python
+sbsv.escape_str("[name with square bracket]") == "[name with square bracket]"
+sbsv.escape_str("[name with square bracket]", quote=True) == '"[name with square bracket]"'
+```
 
 ## Contribute
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/#standalone-installer)
