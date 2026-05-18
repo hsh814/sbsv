@@ -4,18 +4,19 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct {
+struct sbsv_schema_field {
     char* name_with_tag;
     char* name;
     char* type_name;
     int nullable;
-} sbsv_schema_field;
+};
 
-typedef struct {
+struct sbsv_schema {
     char* name;
     sbsv_schema_field* fields;
     size_t field_count;
@@ -23,7 +24,7 @@ typedef struct {
     sbsv_row** rows;
     size_t row_count;
     size_t row_capacity;
-} sbsv_schema;
+};
 
 typedef struct {
     char* name;
@@ -274,7 +275,14 @@ static sbsv_status sbsv_grow_array(void** ptr, size_t elem_size, size_t* capacit
 
     new_capacity = (*capacity == 0) ? 4 : (*capacity * 2);
     while (new_capacity < needed) {
+        if (new_capacity > SIZE_MAX / 2) {
+            return SBSV_ERR_ALLOC;
+        }
         new_capacity *= 2;
+    }
+
+    if (elem_size != 0 && new_capacity > SIZE_MAX / elem_size) {
+        return SBSV_ERR_ALLOC;
     }
 
     new_ptr = realloc(*ptr, elem_size * new_capacity);
@@ -369,7 +377,6 @@ void sbsv_row_free(sbsv_row* row) {
     }
 
     for (i = 0; i < row->field_count; ++i) {
-        free(row->fields[i].key);
         sbsv_value_clear(&row->fields[i].value);
     }
     free(row->fields);
@@ -1326,7 +1333,7 @@ sbsv_status sbsv_body_parser_parse(
     free(fake_parser.last_error);
     sbsv_free_token_list(&tokens);
     row->id = (size_t)-1;
-    row->schema_name = NULL;
+    row->schema = &parser->schema;
     *out_row = row;
     return SBSV_OK;
 }
@@ -1700,22 +1707,16 @@ static sbsv_status sbsv_preprocess_line(sbsv_parser* parser, const char* line, s
             if (parser->save_ignored_prefix) {
                 sbsv_field saved;
                 memset(&saved, 0, sizeof(saved));
-                saved.key = sbsv_strdup_local(prefix_token->capture.name_with_tag);
-                if (saved.key == NULL) {
-                    sbsv_free_token_list(&tokens);
-                    return SBSV_ERR_ALLOC;
-                }
+                saved.schema_field = &prefix_token->capture;
                 sbsv_value_init(&saved.value);
                 status = sbsv_parse_value(parser, prefix_token->capture.type_name, tokens.items[i], &saved.value);
                 if (status != SBSV_OK) {
-                    free(saved.key);
                     sbsv_value_clear(&saved.value);
                     sbsv_free_token_list(&tokens);
                     return status;
                 }
                 status = sbsv_grow_array((void**)&out_line->ignored_fields, sizeof(sbsv_field), &out_line->ignored_field_capacity, out_line->ignored_field_count + 1);
                 if (status != SBSV_OK) {
-                    free(saved.key);
                     sbsv_value_clear(&saved.value);
                     sbsv_free_token_list(&tokens);
                     return status;
@@ -1800,7 +1801,6 @@ static void sbsv_preprocessed_line_free(sbsv_preprocessed_line* pre) {
     }
     free(pre->data_tokens);
     for (i = 0; i < pre->ignored_field_count; ++i) {
-        free(pre->ignored_fields[i].key);
         sbsv_value_clear(&pre->ignored_fields[i].value);
     }
     free(pre->ignored_fields);
@@ -1829,7 +1829,7 @@ static sbsv_status sbsv_parser_append_row(sbsv_parser* parser, sbsv_schema* sche
     schema_index = (size_t)(schema - parser->schemas);
 
     row->id = current_id;
-    row->schema_name = schema->name;
+    row->schema = schema;
 
     status = sbsv_schema_push_row(schema, row);
     if (status != SBSV_OK) {
@@ -1895,6 +1895,7 @@ static sbsv_status sbsv_parse_row_for_schema(
     if (row == NULL) {
         return SBSV_ERR_ALLOC;
     }
+    row->schema = schema;
     row->field_count = schema->field_count;
     row->fields = (sbsv_field*)calloc(schema->field_count, sizeof(sbsv_field));
     if (row->fields == NULL) {
@@ -1906,11 +1907,7 @@ static sbsv_status sbsv_parse_row_for_schema(
         sbsv_schema_field* field = &schema->fields[field_index];
         int matched = 0;
 
-        row->fields[field_index].key = sbsv_strdup_local(field->name_with_tag);
-        if (row->fields[field_index].key == NULL) {
-            sbsv_row_free(row);
-            return SBSV_ERR_ALLOC;
-        }
+        row->fields[field_index].schema_field = field;
         sbsv_value_init(&row->fields[field_index].value);
 
         while (queue_index < token_count) {
@@ -2112,7 +2109,7 @@ static sbsv_status sbsv_parser_parse_line_internal(sbsv_parser* parser, const ch
         }
     } else {
         row->id = (size_t)-1;
-        row->schema_name = schema->name;
+        row->schema = schema;
         if (out_row != NULL) {
             *out_row = row;
         }
@@ -2530,11 +2527,40 @@ const sbsv_value* sbsv_row_get(const sbsv_row* row, const char* key) {
         return NULL;
     }
     for (i = 0; i < row->field_count; ++i) {
-        if (strcmp(row->fields[i].key, key) == 0) {
+        const sbsv_schema_field* field = row->fields[i].schema_field;
+        if (field != NULL && (strcmp(field->name_with_tag, key) == 0 || strcmp(field->name, key) == 0)) {
             return &row->fields[i].value;
         }
     }
     return NULL;
+}
+
+const char* sbsv_field_name(const sbsv_field* field) {
+    if (field == NULL || field->schema_field == NULL) {
+        return NULL;
+    }
+    return field->schema_field->name;
+}
+
+const char* sbsv_field_name_with_tag(const sbsv_field* field) {
+    if (field == NULL || field->schema_field == NULL) {
+        return NULL;
+    }
+    return field->schema_field->name_with_tag;
+}
+
+const char* sbsv_row_schema_name(const sbsv_row* row) {
+    if (row == NULL || row->schema == NULL) {
+        return NULL;
+    }
+    return row->schema->name;
+}
+
+size_t sbsv_row_field_count(const sbsv_row* row) {
+    if (row == NULL || row->schema == NULL) {
+        return 0;
+    }
+    return row->field_count;
 }
 
 const char* sbsv_row_get_string(const sbsv_row* row, const char* key) {

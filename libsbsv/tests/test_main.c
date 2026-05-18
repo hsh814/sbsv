@@ -491,10 +491,10 @@ static int test_parser_ordered_query(void) {
     if (!failed) {
         failed |= assert_true(row_count == 4, "ordered query row count");
         if (row_count == 4) {
-            failed |= assert_true(strcmp(rows[0]->schema_name, "node") == 0, "row0 schema");
-            failed |= assert_true(strcmp(rows[1]->schema_name, "node") == 0, "row1 schema");
-            failed |= assert_true(strcmp(rows[2]->schema_name, "edge") == 0, "row2 schema");
-            failed |= assert_true(strcmp(rows[3]->schema_name, "edge") == 0, "row3 schema");
+            failed |= assert_true(strcmp(sbsv_row_schema_name(rows[0]), "node") == 0, "row0 schema");
+            failed |= assert_true(strcmp(sbsv_row_schema_name(rows[1]), "node") == 0, "row1 schema");
+            failed |= assert_true(strcmp(sbsv_row_schema_name(rows[2]), "edge") == 0, "row2 schema");
+            failed |= assert_true(strcmp(sbsv_row_schema_name(rows[3]), "edge") == 0, "row3 schema");
         }
     }
 
@@ -811,7 +811,7 @@ static int test_parser_ignore_prefix_and_detached_line(void) {
 
     if (!failed) {
         failed |= assert_true(row != NULL, "detached row should be returned");
-        failed |= assert_str_eq(row->schema_name, "necessary$from", "detached row schema");
+        failed |= assert_str_eq(sbsv_row_schema_name(row), "necessary$from", "detached row schema");
         failed |= assert_true(row->id == (size_t)-1, "detached row id should be sentinel");
         value = sbsv_row_get(row, "$timestamp");
         failed |= assert_true(value != NULL && value->type == SBSV_VALUE_STRING, "timestamp should be captured");

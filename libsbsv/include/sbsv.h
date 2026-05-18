@@ -60,13 +60,16 @@ struct sbsv_value {
     sbsv_custom_free_fn custom_free;
 };
 
+typedef struct sbsv_schema sbsv_schema;
+typedef struct sbsv_schema_field sbsv_schema_field;
+
 typedef struct {
-    char* key;
+    const sbsv_schema_field* schema_field;
     sbsv_value value;
 } sbsv_field;
 
 typedef struct {
-    const char* schema_name;
+    const sbsv_schema* schema;
     size_t id;
     sbsv_field* fields;
     size_t field_count;
@@ -100,6 +103,10 @@ void sbsv_value_clear(sbsv_value* value);
 sbsv_status sbsv_value_set_string(sbsv_value* value, const char* string_value);
 sbsv_status sbsv_value_set_custom_ptr(sbsv_value* value, void* custom_ptr, sbsv_custom_free_fn custom_free);
 void sbsv_row_free(sbsv_row* row);
+const char* sbsv_field_name(const sbsv_field* field);
+const char* sbsv_field_name_with_tag(const sbsv_field* field);
+const char* sbsv_row_schema_name(const sbsv_row* row);
+size_t sbsv_row_field_count(const sbsv_row* row);
 
 sbsv_body_parser* sbsv_body_parser_new(void);
 void sbsv_body_parser_free(sbsv_body_parser* parser);
