@@ -64,12 +64,13 @@ typedef struct sbsv_schema sbsv_schema;
 typedef struct sbsv_schema_field sbsv_schema_field;
 
 typedef struct {
-    const sbsv_schema_field* schema_field;
+    const char* name_with_tag;
+    const char* name;
     sbsv_value value;
 } sbsv_field;
 
 typedef struct {
-    const sbsv_schema* schema;
+    const char* schema_name;
     size_t id;
     sbsv_field* fields;
     size_t field_count;
