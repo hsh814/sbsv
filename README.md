@@ -291,13 +291,13 @@ Notes:
 - Custom types are local to each parser instance. Registering a custom type on one parser does not affect other parsers in the same process.
 
 ## Utilities
-### parse_line (stateless)
-If you want to parse single line, you can use `parse_line()`. It does not store results in parser, but return directly.
+### parser.parse_line_detached() (stateless)
+If you want to parse single line, you can use `parser.parse_line_detached()`. It does not store results in parser, but return `SbsvData` directly.
 ```python
 parser = sbsv.parser()
 parser.add_schema("[node] [id: int] [value: int]")
 parser.add_schema("[edge] [src: int] [dst: int] [value: int]")
-result = parser.parse_line("[node] [id 1] [value 2]")
+result = parser.parse_line_detached("[node] [id 1] [value 2]")
 # result == SbsvData(schema_name="node", data={"id": 1, "value": 2})
 # Note: result is not dict, but SbsvData object.
 ```
