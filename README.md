@@ -291,17 +291,16 @@ Notes:
 - Custom types are local to each parser instance. Registering a custom type on one parser does not affect other parsers in the same process.
 
 ## Utilities
-### Line parser (stateless)
-If you want to parse single line, you can use `line_parser`
+### parse_line (stateless)
+If you want to parse single line, you can use `parse_line()`. It does not store results in parser, but return directly.
 ```python
-parser = sbsv.line_parser()
+parser = sbsv.parser()
 parser.add_schema("[node] [id: int] [value: int]")
 parser.add_schema("[edge] [src: int] [dst: int] [value: int]")
-result = parser.loads("[node] [id 1] [value 2]")
+result = parser.parse_line("[node] [id 1] [value 2]")
 # result == SbsvData(schema_name="node", data={"id": 1, "value": 2})
 # Note: result is not dict, but SbsvData object.
 ```
-You cannot use `parser.get_result()` or `parser.get_result_in_order()` for `line_parser` - it does not store results in parser, but return directly.
 This can be useful in cases like parsing log lines one by one, without storing them in memory. 
 
 ### Body parser (stateless)

@@ -85,7 +85,7 @@ class lexer:
         return result
 
     @staticmethod
-    def token_split(token: str, delimiter: str) -> Tuple[str, str]:
+    def token_split(token: str, delimiter: Optional[str]) -> Tuple[str, str]:
         tokens = token.split(delimiter, maxsplit=1)
         if len(tokens) == 0:
             return "", ""
@@ -367,13 +367,15 @@ class Schema:
         return s.startswith("[") and s.endswith("]")
 
     @staticmethod
-    def preprocess(line: str) -> Tuple[str, List[str]]:
+    def preprocess(line: str) -> Tuple[Optional[str], List[str]]:
         tokens = lexer.tokenize(line)
         return Schema.extract_schema_and_body_tokens(tokens)
 
     @staticmethod
-    def extract_schema_and_body_tokens(tokens: List[str]) -> Tuple[str, List[str]]:
-        name: str = None
+    def extract_schema_and_body_tokens(
+        tokens: List[str],
+    ) -> Tuple[Optional[str], List[str]]:
+        name: Optional[str] = None
         data: List[str] = list()
         may_have_sub_schema = True
         for i in range(len(tokens)):
@@ -482,24 +484,43 @@ class body_parser:
         return self
 
 
-class line_parser:
+class parser:
     schema: Dict[str, Schema]
     ignore_unknown: bool
     ignored_prefix: Optional[IgnorePrefix]
     custom_types: Dict[str, Callable[[str], Any]]
+    data: List[SbsvData]
+    groups: Dict[str, Tuple[Schema, Schema, List[Tuple[int, int]]]]
+    group_start: Dict[str, int]
+    group_end: Dict[str, str]
+    result: dict
 
     def __init__(self, ignore_unknown: bool = True):
         self.schema = dict()
         self.ignore_unknown = ignore_unknown
         self.ignored_prefix = None
         self.custom_types = dict()
+        self.data = list()
+        self.result = dict()
+        self.groups = dict()
+        self.group_start = dict()
+        self.group_end = dict()
+
+    # New parser with same schema
+    def clone(self) -> "parser":
+        result = parser(self.ignore_unknown)
+        result.schema = self.schema.copy()
+        result.groups = self.groups.copy()
+        result.ignored_prefix = self.ignored_prefix
+        result.custom_types = self.custom_types.copy()
+        return result
 
     @staticmethod
     def _build_parse_error_message(
         original_error: Exception,
-        line_number: int = None,
-        schema_name: str = None,
-        line: str = None,
+        line_number: Optional[int] = None,
+        schema_name: Optional[str] = None,
+        line: Optional[str] = None,
     ) -> str:
         error_message = str(original_error)
         context = list()
@@ -513,7 +534,12 @@ class line_parser:
             return error_message
         return f"Parse error ({', '.join(context)}): {error_message}"
 
-    def match_schema(self, name: str, line_number: int = None) -> Optional[Schema]:
+    def get_global_id(self) -> int:
+        return len(self.data)
+
+    def match_schema(
+        self, name: Optional[str], line_number: Optional[int] = None
+    ) -> Optional[Schema]:
         if name not in self.schema:
             if self.ignore_unknown:
                 return None
@@ -525,7 +551,9 @@ class line_parser:
         if len(self.schema) > 0:
             raise ValueError(f"{method_name}() must be called before add_schema()")
 
-    def _raise_if_schema_conflicts(self, schema_name: str):
+    def _raise_if_schema_conflicts(self, schema_name: Optional[str]):
+        if schema_name is None:
+            raise ValueError("Schema name cannot be None")
         if schema_name in self.schema:
             raise ValueError(f"Schema '{schema_name}' already exists")
         new_parts = schema_name.split("$")
@@ -553,64 +581,6 @@ class line_parser:
         self._raise_if_schema_exists("add_custom_type")
         self.custom_types[type_name] = type_function
         return self
-
-    def parse_line(self, line: str, line_number: int = None) -> Optional[SbsvData]:
-        line = line.strip()
-        if len(line) == 0 or line.startswith("#"):
-            return None
-        schema_name = None
-        try:
-            tokens = lexer.tokenize(line)
-            ignored = dict()
-            if self.ignored_prefix is not None:
-                tokens, ignored = self.ignored_prefix.parse_tokens(tokens)
-            schema_name, tokens = Schema.extract_schema_and_body_tokens(tokens)
-            sc = self.match_schema(schema_name, line_number)
-            if sc is None:
-                return None
-            row = sc.parse(tokens)
-            if len(ignored) > 0:
-                saved_row = ignored.copy()
-                saved_row.update(row)
-                row = saved_row
-            return SbsvData(sc.name, row, -1)
-        except ValueError as e:
-            raise ValueError(
-                line_parser._build_parse_error_message(
-                    e, line_number, schema_name, line
-                )
-            ) from e
-
-    def loads(self, s: str) -> Optional[SbsvData]:
-        return self.parse_line(s)
-
-
-class parser(line_parser):
-    data: List[SbsvData]
-    groups: Dict[str, Tuple[Schema, Schema, List[Tuple[int, int]]]]
-    group_start: Dict[str, int]
-    group_end: Dict[str, str]
-    result: dict
-
-    def __init__(self, ignore_unknown: bool = True):
-        super().__init__(ignore_unknown)
-        self.data = list()
-        self.result = dict()
-        self.groups = dict()
-        self.group_start = dict()
-        self.group_end = dict()
-
-    # New parser with same schema
-    def clone(self) -> "parser":
-        result = parser(self.ignore_unknown)
-        result.schema = self.schema.copy()
-        result.groups = self.groups.copy()
-        result.ignored_prefix = self.ignored_prefix
-        result.custom_types = self.custom_types.copy()
-        return result
-
-    def get_global_id(self) -> int:
-        return len(self.data)
 
     def add_group(self, group_name: str, start_schema: str, end_schema: str):
         if Schema.need_parsing(start_schema):
@@ -685,8 +655,35 @@ class parser(line_parser):
                 # Else, it did not meet the end schema
                 self.group_start[schema.name] = cur_id
 
-    def parse_line(self, line: str, line_number: int = None):
-        sbsv_data = super().parse_line(line, line_number)
+    def parse_line_detached(
+        self, line: str, line_number: Optional[int] = None
+    ) -> Optional[SbsvData]:
+        line = line.strip()
+        if len(line) == 0 or line.startswith("#"):
+            return None
+        schema_name = None
+        try:
+            tokens = lexer.tokenize(line)
+            ignored = dict()
+            if self.ignored_prefix is not None:
+                tokens, ignored = self.ignored_prefix.parse_tokens(tokens)
+            schema_name, tokens = Schema.extract_schema_and_body_tokens(tokens)
+            sc = self.match_schema(schema_name, line_number)
+            if sc is None:
+                return None
+            row = sc.parse(tokens)
+            if len(ignored) > 0:
+                saved_row = ignored.copy()
+                saved_row.update(row)
+                row = saved_row
+            return SbsvData(sc.name, row, -1)
+        except ValueError as e:
+            raise ValueError(
+                parser._build_parse_error_message(e, line_number, schema_name, line)
+            ) from e
+
+    def parse_line(self, line: str, line_number: Optional[int] = None):
+        sbsv_data = self.parse_line_detached(line, line_number)
         if sbsv_data is None:
             return
         self.append_row_to_data(self.schema[sbsv_data.schema_name], sbsv_data.data)
@@ -706,7 +703,9 @@ class parser(line_parser):
     def get_result(self) -> dict:
         return self.result
 
-    def get_result_in_order(self, schemas: List[str] = None) -> List[SbsvData]:
+    def get_result_in_order(
+        self, schemas: Optional[List[str]] = None
+    ) -> List[SbsvData]:
         if schemas is None:
             return self.data
         pq = queue.PriorityQueue()

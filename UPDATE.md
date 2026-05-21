@@ -1,9 +1,9 @@
-## v0.2.0
+## v0.2.1
 Major parser refactor and documentation update.
 
 ### Added
 - `body_parser` for parsing schema bodies without a schema name.
-- `line_parser` for stateless single-line parsing.
+- `parser.parse_line_detached()` for stateless single-line parsing.
 - `ignore_prefix()` for skipping fixed prefixes, with optional `save_ignored=True` to keep ignored fields.
 - Stricter custom type handling.
 - Quoted string parsing and more flexible unquoted string handling.

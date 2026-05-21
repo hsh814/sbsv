@@ -32,26 +32,26 @@ class TestBodyParser(unittest.TestCase):
         self.assertEqual(result["data"][0]["val"], {"id": 1, "value": 2})
 
 
-class TestLineParser(unittest.TestCase):
-    def test_line_parser(self):
-        parser = sbsv.line_parser()
+class TestParseLineDetached(unittest.TestCase):
+    def test_parse_line_detached(self):
+        parser = sbsv.parser()
         parser.add_schema("[node] [id: int] [value: int]")
         parser.add_schema("[edge] [src: int] [dst: int] [value: int]")
 
-        result = parser.loads("[node] [id 1] [value 2]")
-
+        result = parser.parse_line_detached("[node] [id 1] [value 2]")
+        self.assertNotEqual(result, None)
         self.assertEqual(result.schema_name, "node")
         self.assertEqual(result.data, {"id": 1, "value": 2})
         self.assertEqual(result.id, -1)
 
-    def test_line_parser_sub_schema_and_name_matching(self):
-        parser = sbsv.line_parser()
+    def test_parse_line_detached_sub_schema_and_name_matching(self):
+        parser = sbsv.parser()
         parser.add_schema("[example] [line] [some: int] [extra: str] [any: str]")
 
-        result = parser.loads(
+        result = parser.parse_line_detached(
             "[example] [line] [some 1] [unknown token] [extra str] [any string]"
         )
-
+        self.assertNotEqual(result, None)
         self.assertEqual(result.schema_name, "example$line")
         self.assertEqual(result.data, {"some": 1, "extra": "str", "any": "string"})
 
