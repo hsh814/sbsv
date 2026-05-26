@@ -30,58 +30,82 @@ class lexer:
         pass
 
     @staticmethod
-    def update_token(result: List[str], current: str):
-        result.append(current.strip())
+    def update_token(result: List[str], current: List[str]):
+        token = "".join(current).strip()
+        if token:
+            result.append(token)
 
     @staticmethod
-    def can_start_quote(current: str) -> bool:
-        stripped = current.strip()
-        if stripped == "":
+    def can_start_quote(current: List[str], nonspace_count: int) -> bool:
+        if nonspace_count == 0:
             return True
-        return current[-1].isspace() and len(stripped.split()) == 1
+        return bool(current) and current[-1].isspace() and nonspace_count == 1
 
     @staticmethod
     def tokenize(line: str) -> List[str]:
-        result = list()
+        result: List[str] = []
         level = 0
-        current = ""
+        current: List[str] = []
         escape = False
         quote = False
-        for c in range(len(line)):
-            char = line[c]
+        nonspace_count = 0
+
+        for char in line:
             if escape:
                 escape = False
                 if level > 0:
-                    current += "\\" + char
+                    current.append("\\")
+                    current.append(char)
+                    if not char.isspace():
+                        nonspace_count += 1
                 continue
+
             if char == "\\" and level > 0:
                 escape = True
                 continue
-            if char == '"' and level > 0 and (quote or lexer.can_start_quote(current)):
+
+            if (
+                char == '"'
+                and level > 0
+                and (quote or lexer.can_start_quote(current, nonspace_count))
+            ):
                 quote = not quote
-                current += char
+                current.append(char)
+                nonspace_count += 1
                 continue
+
             if char == "[" and not quote:
                 level += 1
                 if level == 1:
-                    if len(current.strip()) > 0:
+                    if current:
                         lexer.update_token(result, current)
-                    current = ""
+                    current = []
+                    nonspace_count = 0
                     continue
             elif char == "]" and not quote:
                 level -= 1
+                if level < 0:
+                    raise ValueError("Invalid data: unmatched closing bracket")
                 if level == 0:
                     lexer.update_token(result, current)
-                    current = ""
+                    current = []
+                    nonspace_count = 0
                     continue
+
             if level > 0:
-                current += char
+                current.append(char)
+                if not char.isspace():
+                    nonspace_count += 1
+
         if escape and level > 0:
-            current += "\\"
+            current.append("\\")
+            nonspace_count += 1
         if quote:
             raise ValueError("Invalid data: unterminated quoted string")
         if level > 0:
             raise ValueError("Invalid data: unterminated bracket")
+        if level < 0:
+            raise ValueError("Invalid data: unmatched closing bracket")
         return result
 
     @staticmethod
@@ -243,8 +267,8 @@ class SchemaBody:
 
     def __init__(
         self,
-        schema_body: str = None,
-        tokens: List[str] = None,
+        schema_body: Optional[str] = None,
+        tokens: Optional[List[str]] = None,
         custom_types: Optional[Dict[str, Callable[[str], Any]]] = None,
     ):
         if schema_body is None and tokens is None:
@@ -283,16 +307,19 @@ class SchemaBody:
                 f"{len(self.schema)} fields, got {len(tokens)} "
                 f"in {SchemaBody.format_tokens(tokens)}"
             )
-        q = queue.Queue(len(tokens))
-        for token in tokens:
-            q.put(token)
+
+        parsed_tokens: List[Tuple[str, str, str]] = []
+        for elem in tokens:
+            key, value = lexer.token_split_default(elem)
+            if key == "":
+                raise ValueError(f"Invalid data token [{elem}]: empty name")
+            parsed_tokens.append((key, value, elem))
+
+        start = 0
         for schema_type in self.schema:
             done = False
-            while not q.empty():
-                elem = q.get()
-                key, value = lexer.token_split_default(elem)
-                if key == "":
-                    raise ValueError(f"Invalid data token [{elem}]: empty name")
+            for i in range(start, len(parsed_tokens)):
+                key, value, elem = parsed_tokens[i]
                 if not schema_type.check_name(key):
                     continue
                 if value == "" and not schema_type.check_nullable():
@@ -307,6 +334,7 @@ class SchemaBody:
                         f"Invalid value for key '{schema_type.name}' "
                         f"as type '{schema_type.type}': {value!r}"
                     ) from e
+                start = i + 1
                 done = True
                 break
             if not done:
@@ -314,6 +342,7 @@ class SchemaBody:
                     f"Invalid data: missing key '{schema_type.name}' "
                     f"in {SchemaBody.format_tokens(tokens)}"
                 )
+
         return result
 
 
