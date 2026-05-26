@@ -1,6 +1,7 @@
 import unittest
 import os
 import sbsv
+from sbsv.sbsv import lexer
 
 RESOURCE_DIR = os.path.join(os.path.dirname(__file__), "resources")
 
@@ -130,3 +131,10 @@ class TestLexer(unittest.TestCase):
                 parser.add_schema("[data] [value: str]")
                 result = parser.loads(f"[data] [value {sbsv.escape_str(value)}]\n")
                 self.assertEqual(result["data"][0]["value"], value)
+
+    def test_tokenize_default_is_best_effort_for_malformed_input(self):
+        self.assertEqual(lexer.tokenize("[known] [id 1"), ["known"])
+        self.assertEqual(lexer.tokenize('[known] [value "broken'), ["known"])
+
+        with self.assertRaises(ValueError):
+            lexer.tokenize("[known] [id 1", strict=True)

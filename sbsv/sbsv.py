@@ -1,4 +1,4 @@
-from typing import List, Dict, Tuple, TextIO, Callable, Any, Optional
+from typing import List, Dict, Tuple, TextIO, Callable, Any, Optional, Set
 import queue
 import re
 from .utils import unescape_str
@@ -42,7 +42,7 @@ class lexer:
         return bool(current) and current[-1].isspace() and nonspace_count == 1
 
     @staticmethod
-    def tokenize(line: str) -> List[str]:
+    def tokenize(line: str, strict: bool = False) -> List[str]:
         result: List[str] = []
         level = 0
         current: List[str] = []
@@ -85,7 +85,10 @@ class lexer:
             elif char == "]" and not quote:
                 level -= 1
                 if level < 0:
-                    raise ValueError("Invalid data: unmatched closing bracket")
+                    if strict:
+                        raise ValueError("Invalid data: unmatched closing bracket")
+                    level = 0
+                    continue
                 if level == 0:
                     lexer.update_token(result, current)
                     current = []
@@ -100,13 +103,21 @@ class lexer:
         if escape and level > 0:
             current.append("\\")
             nonspace_count += 1
-        if quote:
+        if strict and quote:
             raise ValueError("Invalid data: unterminated quoted string")
-        if level > 0:
+        if strict and level > 0:
             raise ValueError("Invalid data: unterminated bracket")
-        if level < 0:
+        if strict and level < 0:
             raise ValueError("Invalid data: unmatched closing bracket")
         return result
+
+    @staticmethod
+    def token_key_and_has_value(token: str) -> Tuple[str, bool]:
+        stripped = token.strip()
+        if stripped == "":
+            return "", False
+        parts = stripped.split(None, maxsplit=1)
+        return parts[0], len(parts) > 1
 
     @staticmethod
     def token_split(token: str, delimiter: Optional[str]) -> Tuple[str, str]:
@@ -156,6 +167,9 @@ class SbsvData:
 
     def get_id(self) -> int:
         return self.id
+
+    def set_id(self, id: int):
+        self.id = id
 
     def get_name(self) -> str:
         return self.schema_name
@@ -235,7 +249,9 @@ class SbsvDataType:
         sub_type = SbsvDataType.list_sub_type(type)
         if sub_type is not None:
             sub_converter = SbsvDataType(sub_type, sub_type, custom_types)
-            return lambda x: [sub_converter.convert(v) for v in lexer.tokenize(x)]
+            return lambda x: [
+                sub_converter.convert(v) for v in lexer.tokenize(x, strict=True)
+            ]
         # Custom types
         if type in custom_types:
             return custom_types[type]
@@ -278,7 +294,7 @@ class SchemaBody:
         if custom_types is None:
             custom_types = dict()
         if tokens is None:
-            tokens = lexer.tokenize(schema_body)
+            tokens = lexer.tokenize(schema_body, strict=True)
         if self.original is None:
             self.original = SchemaBody.format_tokens(tokens)
         for token in tokens:
@@ -308,18 +324,15 @@ class SchemaBody:
                 f"in {SchemaBody.format_tokens(tokens)}"
             )
 
-        parsed_tokens: List[Tuple[str, str, str]] = []
-        for elem in tokens:
-            key, value = lexer.token_split_default(elem)
-            if key == "":
-                raise ValueError(f"Invalid data token [{elem}]: empty name")
-            parsed_tokens.append((key, value, elem))
-
         start = 0
         for schema_type in self.schema:
             done = False
-            for i in range(start, len(parsed_tokens)):
-                key, value, elem = parsed_tokens[i]
+            while start < len(tokens):
+                elem = tokens[start]
+                start += 1
+                key, value = lexer.token_split_default(elem)
+                if key == "":
+                    raise ValueError(f"Invalid data token [{elem}]: empty name")
                 if not schema_type.check_name(key):
                     continue
                 if value == "" and not schema_type.check_nullable():
@@ -334,7 +347,6 @@ class SchemaBody:
                         f"Invalid value for key '{schema_type.name}' "
                         f"as type '{schema_type.type}': {value!r}"
                     ) from e
-                start = i + 1
                 done = True
                 break
             if not done:
@@ -362,7 +374,7 @@ class Schema:
         self.name = ""
         self.schema = list()
         self.data = list()
-        tokens = lexer.tokenize(s)
+        tokens = lexer.tokenize(s, strict=True)
         if len(tokens) == 0:
             raise ValueError(f"Invalid schema {s}: too short")
         self.name = tokens[0]
@@ -397,7 +409,7 @@ class Schema:
 
     @staticmethod
     def preprocess(line: str) -> Tuple[Optional[str], List[str]]:
-        tokens = lexer.tokenize(line)
+        tokens = lexer.tokenize(line, strict=True)
         return Schema.extract_schema_and_body_tokens(tokens)
 
     @staticmethod
@@ -408,8 +420,8 @@ class Schema:
         data: List[str] = list()
         may_have_sub_schema = True
         for i in range(len(tokens)):
-            key, value = lexer.token_split_default(tokens[i])
-            if key != "" and value == "" and may_have_sub_schema:
+            key, has_value = lexer.token_key_and_has_value(tokens[i])
+            if key != "" and not has_value and may_have_sub_schema:
                 if name is None:
                     name = key
                 else:
@@ -439,7 +451,7 @@ class IgnorePrefix:
         save_ignored: bool = False,
         custom_types: Optional[Dict[str, Callable[[str], Any]]] = None,
     ):
-        tokens = lexer.tokenize(prefix)
+        tokens = lexer.tokenize(prefix, strict=True)
         if len(tokens) == 0:
             raise ValueError(f"Invalid ignore prefix {prefix}: too short")
         self.tokens = list()
@@ -503,7 +515,7 @@ class body_parser:
         self.body = SchemaBody(schema_body, custom_types=self.custom_types)
 
     def loads(self, s: str) -> Dict[str, Any]:
-        return self.parse_tokens(lexer.tokenize(s))
+        return self.parse_tokens(lexer.tokenize(s, strict=True))
 
     def parse_tokens(self, tokens: List[str]) -> Dict[str, Any]:
         return self.body.parse(tokens)
@@ -515,6 +527,7 @@ class body_parser:
 
 class parser:
     schema: Dict[str, Schema]
+    schema_prefixes: Set[str]
     ignore_unknown: bool
     ignored_prefix: Optional[IgnorePrefix]
     custom_types: Dict[str, Callable[[str], Any]]
@@ -526,6 +539,7 @@ class parser:
 
     def __init__(self, ignore_unknown: bool = True):
         self.schema = dict()
+        self.schema_prefixes = set()
         self.ignore_unknown = ignore_unknown
         self.ignored_prefix = None
         self.custom_types = dict()
@@ -539,6 +553,7 @@ class parser:
     def clone(self) -> "parser":
         result = parser(self.ignore_unknown)
         result.schema = self.schema.copy()
+        result.schema_prefixes = self.schema_prefixes.copy()
         result.groups = self.groups.copy()
         result.ignored_prefix = self.ignored_prefix
         result.custom_types = self.custom_types.copy()
@@ -578,7 +593,7 @@ class parser:
 
     @staticmethod
     def _token_has_value(token: str) -> bool:
-        return len(token.strip().split(None, maxsplit=1)) > 1
+        return lexer.token_key_and_has_value(token)[1]
 
     def _schema_name_may_match(
         self, schema_name: Optional[str], ambiguous_sub_schema: bool
@@ -589,10 +604,9 @@ class parser:
             return True
         if not ambiguous_sub_schema:
             return False
-        prefix = f"{schema_name}$"
-        return any(existing_name.startswith(prefix) for existing_name in self.schema)
+        return schema_name in self.schema_prefixes
 
-    def _scan_schema_name_prefix(self, line: str) -> Tuple[Optional[str], bool]:
+    def _extract_schema_name_fast(self, line: str) -> Tuple[Optional[str], bool, bool]:
         ignored_prefix_len = 0
         if self.ignored_prefix is not None:
             ignored_prefix_len = len(self.ignored_prefix.tokens)
@@ -644,15 +658,27 @@ class parser:
                     if not token:
                         continue
                     if token_index < ignored_prefix_len:
+                        expected, schema_type = self.ignored_prefix.tokens[token_index]
+                        if schema_type is None and token != expected:
+                            return None, False, False
                         token_index += 1
                         continue
-                    if parser._token_has_value(token):
-                        return "$".join(schema_parts) if schema_parts else None, False
-                    schema_parts.append(token)
+                    key, has_value = lexer.token_key_and_has_value(token)
+                    if has_value:
+                        return (
+                            "$".join(schema_parts) if schema_parts else None,
+                            False,
+                            True,
+                        )
+                    schema_parts.append(key)
                     token_index += 1
                     continue
                 if level < 0:
-                    return "$".join(schema_parts) if schema_parts else None, False
+                    return (
+                        "$".join(schema_parts) if schema_parts else None,
+                        False,
+                        True,
+                    )
 
             if level > 0:
                 current.append(char)
@@ -661,12 +687,15 @@ class parser:
 
         if level > 0 or quote:
             token = "".join(current).strip()
+            if token_index < ignored_prefix_len:
+                return None, False, False
             ambiguous_sub_schema = not token or not parser._token_has_value(token)
             return (
                 "$".join(schema_parts) if schema_parts else None,
                 ambiguous_sub_schema,
+                True,
             )
-        return "$".join(schema_parts) if schema_parts else None, False
+        return "$".join(schema_parts) if schema_parts else None, False, True
 
     def _raise_if_schema_exists(self, method_name: str):
         if len(self.schema) > 0:
@@ -691,6 +720,9 @@ class parser:
         sc = Schema(schema, custom_types=self.custom_types)
         self._raise_if_schema_conflicts(sc.name)
         self.schema[sc.name] = sc
+        parts = sc.name.split("$")
+        for i in range(1, len(parts)):
+            self.schema_prefixes.add("$".join(parts[:i]))
         return self
 
     def ignore_prefix(self, prefix: str, save_ignored: bool = False):
@@ -755,9 +787,10 @@ class parser:
             else:
                 self.result[key] = self.schema[key].get_data()
 
-    def append_row_to_data(self, schema: Schema, row: Dict[str, Any]):
+    def append_row_to_data(self, sbsv_data: SbsvData):
         cur_id = self.get_global_id()
-        sbsv_data = SbsvData(schema.name, row, cur_id)
+        sbsv_data.set_id(cur_id)
+        schema = self.schema[sbsv_data.schema_name]
         schema.append_data(sbsv_data)
         self.data.append(sbsv_data)
         if schema.name in self.group_end:
@@ -784,18 +817,17 @@ class parser:
             return None
         schema_name = None
         try:
-            try:
-                tokens = lexer.tokenize(line)
-            except ValueError:
-                if self.ignore_unknown:
-                    schema_name, ambiguous_sub_schema = self._scan_schema_name_prefix(
-                        line
-                    )
-                    if not self._schema_name_may_match(
-                        schema_name, ambiguous_sub_schema
-                    ):
-                        return None
-                raise
+            if self.ignore_unknown:
+                (
+                    schema_name,
+                    ambiguous_sub_schema,
+                    reliable_schema_name,
+                ) = self._extract_schema_name_fast(line)
+                if reliable_schema_name and not self._schema_name_may_match(
+                    schema_name, ambiguous_sub_schema
+                ):
+                    return None
+            tokens = lexer.tokenize(line, strict=True)
             ignored = dict()
             if self.ignored_prefix is not None:
                 tokens, ignored = self.ignored_prefix.parse_tokens(tokens)
@@ -818,7 +850,7 @@ class parser:
         sbsv_data = self.parse_line_detached(line, line_number)
         if sbsv_data is None:
             return
-        self.append_row_to_data(self.schema[sbsv_data.schema_name], sbsv_data.data)
+        self.append_row_to_data(sbsv_data)
 
     def load(self, fp: TextIO) -> dict:
         for line_number, line in enumerate(fp, start=1):
