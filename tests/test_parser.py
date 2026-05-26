@@ -100,3 +100,35 @@ class TestParser(unittest.TestCase):
         message = str(error_context.exception)
         self.assertIn("line=1", message)
         self.assertIn("schema=node", message)
+
+    def test_malformed_unknown_schema_line_is_ignored(self):
+        parser = sbsv.parser()
+        parser.add_schema("[known] [id: int]")
+
+        result = parser.loads("[unknown] [broken\n[known] [id 1]\n")
+
+        self.assertEqual(result["known"][0]["id"], 1)
+        self.assertNotIn("unknown", result)
+
+    def test_malformed_unknown_schema_line_with_unterminated_quote_is_ignored(self):
+        parser = sbsv.parser()
+        parser.add_schema("[known] [id: int]")
+
+        result = parser.loads('[unknown] [value "broken]\n[known] [id 1]\n')
+
+        self.assertEqual(result["known"][0]["id"], 1)
+        self.assertNotIn("unknown", result)
+
+    def test_malformed_known_schema_line_still_errors(self):
+        parser = sbsv.parser()
+        parser.add_schema("[known] [id: int]")
+
+        with self.assertRaises(ValueError):
+            parser.loads("[known] [id 1\n")
+
+    def test_malformed_unknown_schema_line_errors_when_not_ignoring_unknown(self):
+        parser = sbsv.parser(ignore_unknown=False)
+        parser.add_schema("[known] [id: int]")
+
+        with self.assertRaises(ValueError):
+            parser.loads("[unknown] [broken\n")

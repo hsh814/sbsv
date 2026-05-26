@@ -576,6 +576,98 @@ class parser:
             raise ValueError(f"Unknown schema '{schema_name}'")
         return self.schema[name]
 
+    @staticmethod
+    def _token_has_value(token: str) -> bool:
+        return len(token.strip().split(None, maxsplit=1)) > 1
+
+    def _schema_name_may_match(
+        self, schema_name: Optional[str], ambiguous_sub_schema: bool
+    ) -> bool:
+        if schema_name is None:
+            return False
+        if schema_name in self.schema:
+            return True
+        if not ambiguous_sub_schema:
+            return False
+        prefix = f"{schema_name}$"
+        return any(existing_name.startswith(prefix) for existing_name in self.schema)
+
+    def _scan_schema_name_prefix(self, line: str) -> Tuple[Optional[str], bool]:
+        ignored_prefix_len = 0
+        if self.ignored_prefix is not None:
+            ignored_prefix_len = len(self.ignored_prefix.tokens)
+
+        token_index = 0
+        schema_parts: List[str] = []
+        level = 0
+        current: List[str] = []
+        escape = False
+        quote = False
+        nonspace_count = 0
+
+        for char in line:
+            if escape:
+                escape = False
+                if level > 0:
+                    current.append("\\")
+                    current.append(char)
+                    if not char.isspace():
+                        nonspace_count += 1
+                continue
+
+            if char == "\\" and level > 0:
+                escape = True
+                continue
+
+            if (
+                char == '"'
+                and level > 0
+                and (quote or lexer.can_start_quote(current, nonspace_count))
+            ):
+                quote = not quote
+                current.append(char)
+                nonspace_count += 1
+                continue
+
+            if char == "[" and not quote:
+                level += 1
+                if level == 1:
+                    current = []
+                    nonspace_count = 0
+                    continue
+            elif char == "]" and not quote:
+                level -= 1
+                if level == 0:
+                    token = "".join(current).strip()
+                    current = []
+                    nonspace_count = 0
+                    if not token:
+                        continue
+                    if token_index < ignored_prefix_len:
+                        token_index += 1
+                        continue
+                    if parser._token_has_value(token):
+                        return "$".join(schema_parts) if schema_parts else None, False
+                    schema_parts.append(token)
+                    token_index += 1
+                    continue
+                if level < 0:
+                    return "$".join(schema_parts) if schema_parts else None, False
+
+            if level > 0:
+                current.append(char)
+                if not char.isspace():
+                    nonspace_count += 1
+
+        if level > 0 or quote:
+            token = "".join(current).strip()
+            ambiguous_sub_schema = not token or not parser._token_has_value(token)
+            return (
+                "$".join(schema_parts) if schema_parts else None,
+                ambiguous_sub_schema,
+            )
+        return "$".join(schema_parts) if schema_parts else None, False
+
     def _raise_if_schema_exists(self, method_name: str):
         if len(self.schema) > 0:
             raise ValueError(f"{method_name}() must be called before add_schema()")
@@ -692,7 +784,18 @@ class parser:
             return None
         schema_name = None
         try:
-            tokens = lexer.tokenize(line)
+            try:
+                tokens = lexer.tokenize(line)
+            except ValueError:
+                if self.ignore_unknown:
+                    schema_name, ambiguous_sub_schema = self._scan_schema_name_prefix(
+                        line
+                    )
+                    if not self._schema_name_may_match(
+                        schema_name, ambiguous_sub_schema
+                    ):
+                        return None
+                raise
             ignored = dict()
             if self.ignored_prefix is not None:
                 tokens, ignored = self.ignored_prefix.parse_tokens(tokens)
