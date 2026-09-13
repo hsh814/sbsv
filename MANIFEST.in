@@ -1,5 +1,7 @@
 include libsbsv/include/sbsv.h
 include libsbsv/src/sbsv.c
 include libsbsv/src/sbsv_parser.c
-include sbsv/_native.c
 include sbsv/_native.pyi
+recursive-include tests *.py
+recursive-include tests/resources *.sbsv
+include LICENSE

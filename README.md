@@ -386,3 +386,9 @@ Build and update
 uv build
 uv publish
 ```
+
+Binary wheels for Linux, Windows, and macOS are built by the
+[build-wheels workflow](.github/workflows/build-wheels.yml) with
+[cibuildwheel](https://cibuildwheel.readthedocs.io/). It runs automatically
+when a GitHub release is published and then publishes every wheel and the
+sdist to PyPI.
