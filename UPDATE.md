@@ -1,3 +1,16 @@
+## v0.2.3
+
+### Added
+- Optional CPython acceleration backed by `libsbsv`, with automatic pure Python fallback.
+- `parser(use_native=False)` to force the reference Python implementation.
+- `sbsv.native_available()` for runtime backend detection.
+- Arbitrary-precision integer preservation in `libsbsv` through `SBSV_VALUE_BIG_INT`.
+
+### Changed
+- Reduced native token copies and per-field allocations.
+- Added fast paths for unescaped Python strings and cached type information.
+- Replaced the synchronized ordering queue with `heapq`.
+
 ## v0.2.1
 Major parser refactor and documentation update.
 

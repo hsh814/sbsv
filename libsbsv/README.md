@@ -131,6 +131,12 @@ if (row != NULL) {
   allows nullable first fields.
 - Strings support quoted values and balanced unquoted brackets. Escaping happens
   during value conversion, not during tokenization.
+- `sbsv_tokenize_line()` keeps best-effort unmatched-closing behavior;
+  `sbsv_tokenize_line_strict()` rejects unmatched closing brackets. Parser
+  entry points use the strict form.
+- Integer values outside the signed 64-bit range are retained as
+  `SBSV_VALUE_BIG_INT`; access their decimal representation with
+  `sbsv_row_get_big_int()`.
 
 ## Ownership And Memory
 

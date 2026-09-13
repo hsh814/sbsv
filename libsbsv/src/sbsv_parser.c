@@ -317,7 +317,7 @@ void sbsv_value_clear(sbsv_value* value) {
         return;
     }
 
-    if (value->type == SBSV_VALUE_STRING) {
+    if (value->type == SBSV_VALUE_STRING || value->type == SBSV_VALUE_BIG_INT) {
         free(value->data.string_value);
     }
 
@@ -978,7 +978,7 @@ sbsv_status sbsv_parser_add_schema(sbsv_parser* parser, const char* schema_expr)
     memset(&tokens, 0, sizeof(tokens));
     memset(&parsed, 0, sizeof(parsed));
 
-    status = sbsv_tokenize_line(schema_expr, &tokens);
+    status = sbsv_tokenize_line_strict(schema_expr, &tokens);
     if (status != SBSV_OK) {
         sbsv_parser_set_error(parser, "Invalid schema: failed to tokenize");
         return status;
@@ -1235,7 +1235,7 @@ sbsv_status sbsv_parser_ignore_prefix(
     }
 
     memset(&tokens, 0, sizeof(tokens));
-    status = sbsv_tokenize_line(prefix, &tokens);
+    status = sbsv_tokenize_line_strict(prefix, &tokens);
     if (status != SBSV_OK || tokens.count == 0) {
         sbsv_parser_set_error(parser, "Invalid ignore prefix %s: too short", prefix);
         sbsv_free_token_list(&tokens);
@@ -1427,7 +1427,7 @@ sbsv_status sbsv_body_parser_set_schema(sbsv_body_parser* parser, const char* sc
         return SBSV_ERR_ALLOC;
     }
 
-    status = sbsv_tokenize_line(schema_body, &tokens);
+    status = sbsv_tokenize_line_strict(schema_body, &tokens);
     if (status != SBSV_OK) {
         sbsv_schema_free(&parsed);
         sbsv_body_parser_set_error(parser, "Invalid schema body: failed to tokenize");
@@ -1552,7 +1552,7 @@ sbsv_status sbsv_body_parser_parse(
     }
 
     memset(&tokens, 0, sizeof(tokens));
-    status = sbsv_tokenize_line(body, &tokens);
+    status = sbsv_tokenize_line_strict(body, &tokens);
     if (status != SBSV_OK) {
         sbsv_body_parser_set_error(parser, "Invalid body: failed to tokenize");
         return status;
@@ -1601,7 +1601,7 @@ static sbsv_status sbsv_schema_name_from_expr(const char* schema_expr, char** ou
     }
 
     memset(&tokens, 0, sizeof(tokens));
-    status = sbsv_tokenize_line(schema_expr, &tokens);
+    status = sbsv_tokenize_line_strict(schema_expr, &tokens);
     if (status != SBSV_OK) {
         return status;
     }
@@ -1726,6 +1726,65 @@ static sbsv_status sbsv_parse_value(
     sbsv_value* out_value
 );
 
+static int sbsv_ascii_equal_case(const char* value, const char* expected) {
+    while (*value != '\0' && *expected != '\0') {
+        if (
+            tolower((unsigned char)*value)
+            != tolower((unsigned char)*expected)
+        ) {
+            return 0;
+        }
+        value += 1;
+        expected += 1;
+    }
+    return *value == '\0' && *expected == '\0';
+}
+
+static int sbsv_float_syntax_supported(const char* value) {
+    const char* cursor = value;
+    int has_digit = 0;
+
+    if (*cursor == '+' || *cursor == '-') {
+        cursor += 1;
+    }
+    if (
+        sbsv_ascii_equal_case(cursor, "inf")
+        || sbsv_ascii_equal_case(cursor, "infinity")
+        || sbsv_ascii_equal_case(cursor, "nan")
+    ) {
+        return 1;
+    }
+    while (*cursor >= '0' && *cursor <= '9') {
+        has_digit = 1;
+        cursor += 1;
+    }
+    if (*cursor == '.') {
+        cursor += 1;
+        while (*cursor >= '0' && *cursor <= '9') {
+            has_digit = 1;
+            cursor += 1;
+        }
+    }
+    if (!has_digit) {
+        return 0;
+    }
+    if (*cursor == 'e' || *cursor == 'E') {
+        int exponent_digit = 0;
+        cursor += 1;
+        if (*cursor == '+' || *cursor == '-') {
+            cursor += 1;
+        }
+        while (*cursor >= '0' && *cursor <= '9') {
+            exponent_digit = 1;
+            cursor += 1;
+        }
+        if (!exponent_digit) {
+            return 0;
+        }
+    }
+    return *cursor == '\0';
+}
+
 static int sbsv_parse_bool(const char* value, int* out_bool) {
     char lowered[16];
     size_t len = strlen(value);
@@ -1775,7 +1834,7 @@ static sbsv_status sbsv_parse_list_value(
     memcpy(subtype, type_name + 5, subtype_len - 6);
     subtype[subtype_len - 6] = '\0';
 
-    status = sbsv_tokenize_line(raw, &list_tokens);
+    status = sbsv_tokenize_line_strict(raw, &list_tokens);
     if (status != SBSV_OK) {
         free(subtype);
         return status;
@@ -1816,21 +1875,37 @@ static sbsv_status sbsv_parse_value(
     sbsv_custom_type* custom;
     char* decoded = NULL;
     const char* value = raw;
+    int needs_unescape;
 
     if (strncmp(type_name, "list[", 5) == 0) {
         return sbsv_parse_list_value(parser, type_name, raw, out_value);
     }
 
-    if (sbsv_unescape_str(raw, &decoded) != SBSV_OK) {
-        sbsv_parser_set_error(parser, "Invalid string value: %s", raw);
-        return SBSV_ERR_INVALID_ARG;
+    needs_unescape = raw[0] == '"' || strchr(raw, '\\') != NULL;
+    if (needs_unescape) {
+        if (sbsv_unescape_str(raw, &decoded) != SBSV_OK) {
+            sbsv_parser_set_error(parser, "Invalid string value: %s", raw);
+            return SBSV_ERR_INVALID_ARG;
+        }
+        value = decoded;
     }
-    value = decoded;
 
     if (strcmp(type_name, "int") == 0) {
         long long parsed;
         errno = 0;
         parsed = strtoll(value, &end_ptr, 10);
+        if (errno == ERANGE && *end_ptr == '\0') {
+            char* big_int = decoded;
+            if (big_int == NULL) {
+                big_int = sbsv_strdup_local(value);
+                if (big_int == NULL) {
+                    return SBSV_ERR_ALLOC;
+                }
+            }
+            out_value->type = SBSV_VALUE_BIG_INT;
+            out_value->data.string_value = big_int;
+            return SBSV_OK;
+        }
         if (errno != 0 || *end_ptr != '\0') {
             sbsv_parser_set_error(parser, "Invalid int value: %s", value);
             free(decoded);
@@ -1844,6 +1919,11 @@ static sbsv_status sbsv_parse_value(
 
     if (strcmp(type_name, "float") == 0) {
         double parsed;
+        if (!sbsv_float_syntax_supported(value)) {
+            sbsv_parser_set_error(parser, "Invalid float value: %s", value);
+            free(decoded);
+            return SBSV_ERR_INVALID_ARG;
+        }
         errno = 0;
         parsed = strtod(value, &end_ptr);
         if (errno != 0 || *end_ptr != '\0') {
@@ -1858,9 +1938,12 @@ static sbsv_status sbsv_parse_value(
     }
 
     if (strcmp(type_name, "str") == 0) {
-        sbsv_status status = sbsv_value_set_string(out_value, value);
-        free(decoded);
-        return status;
+        if (decoded != NULL) {
+            out_value->type = SBSV_VALUE_STRING;
+            out_value->data.string_value = decoded;
+            return SBSV_OK;
+        }
+        return sbsv_value_set_string(out_value, value);
     }
 
     if (strcmp(type_name, "bool") == 0) {
@@ -1921,7 +2004,7 @@ static sbsv_status sbsv_preprocess_line(sbsv_parser* parser, const char* line, s
     memset(out_line, 0, sizeof(*out_line));
     memset(&tokens, 0, sizeof(tokens));
 
-    status = sbsv_tokenize_line(line, &tokens);
+    status = sbsv_tokenize_line_strict(line, &tokens);
     if (status != SBSV_OK) {
         return status;
     }
@@ -2000,7 +2083,8 @@ static sbsv_status sbsv_preprocess_line(sbsv_parser* parser, const char* line, s
                 }
             }
         } else {
-            char* copied = sbsv_strdup_local(tokens.items[i]);
+            char* copied = tokens.items[i];
+            tokens.items[i] = NULL;
             sbsv_status grow_status;
             may_have_sub_schema = 0;
             if (copied == NULL) {
@@ -2114,6 +2198,57 @@ static sbsv_status sbsv_parser_append_row(sbsv_parser* parser, sbsv_schema* sche
     return SBSV_OK;
 }
 
+static void sbsv_split_token_view(
+    const char* token,
+    const char** out_key,
+    size_t* out_key_len,
+    const char** out_value
+) {
+    const char* cursor = token;
+
+    while (*cursor != '\0' && !sbsv_is_space_char(*cursor)) {
+        cursor += 1;
+    }
+    *out_key = token;
+    *out_key_len = (size_t)(cursor - token);
+    while (*cursor != '\0' && sbsv_is_space_char(*cursor)) {
+        cursor += 1;
+    }
+    *out_value = cursor;
+}
+
+static int sbsv_token_key_matches(
+    const char* key,
+    size_t key_len,
+    const char* expected
+) {
+    char* encoded;
+    char* decoded = NULL;
+    int matches;
+
+    if (
+        (key_len == 0 || key[0] != '"')
+        && memchr(key, '\\', key_len) == NULL
+    ) {
+        return strlen(expected) == key_len && memcmp(expected, key, key_len) == 0;
+    }
+
+    encoded = (char*)malloc(key_len + 1);
+    if (encoded == NULL) {
+        return -1;
+    }
+    memcpy(encoded, key, key_len);
+    encoded[key_len] = '\0';
+    if (sbsv_unescape_str(encoded, &decoded) != SBSV_OK) {
+        free(encoded);
+        return -1;
+    }
+    matches = strcmp(expected, decoded) == 0;
+    free(decoded);
+    free(encoded);
+    return matches;
+}
+
 static sbsv_status sbsv_parse_row_for_schema(
     sbsv_parser* parser,
     sbsv_schema* schema,
@@ -2151,44 +2286,42 @@ static sbsv_status sbsv_parse_row_for_schema(
         sbsv_value_init(&row->fields[field_index].value);
 
         while (queue_index < token_count) {
-            char* key = NULL;
-            char* value = NULL;
+            const char* key;
+            const char* value;
+            size_t key_len;
+            int key_matches;
             sbsv_status convert_status;
-            sbsv_split_token_default(tokens[queue_index], &key, &value);
+
+            sbsv_split_token_view(
+                tokens[queue_index],
+                &key,
+                &key_len,
+                &value
+            );
             queue_index += 1;
 
-            if (key == NULL || value == NULL) {
-                free(key);
-                free(value);
-                sbsv_row_free(row);
-                return SBSV_ERR_ALLOC;
-            }
-
-            if (strlen(key) == 0) {
-                free(key);
-                free(value);
+            if (key_len == 0) {
                 sbsv_parser_set_error(parser, "Invalid data %s: empty name", tokens[queue_index - 1]);
                 sbsv_row_free(row);
                 return SBSV_ERR_INVALID_ARG;
             }
 
-            if (strcmp(field->name, key) != 0) {
-                free(key);
-                free(value);
+            key_matches = sbsv_token_key_matches(key, key_len, field->name);
+            if (key_matches < 0) {
+                sbsv_row_free(row);
+                return SBSV_ERR_ALLOC;
+            }
+            if (!key_matches) {
                 continue;
             }
 
-            if (strlen(value) == 0 && field->nullable) {
+            if (*value == '\0' && field->nullable) {
                 row->fields[field_index].value.type = SBSV_VALUE_NULL;
                 matched = 1;
-                free(key);
-                free(value);
                 break;
             }
 
-            if (strlen(value) == 0 && !field->nullable) {
-                free(key);
-                free(value);
+            if (*value == '\0' && !field->nullable) {
                 sbsv_parser_set_error(parser, "Invalid data token [%s]: empty value for non-nullable key '%s'", tokens[queue_index - 1], field->name);
                 sbsv_row_free(row);
                 return SBSV_ERR_INVALID_ARG;
@@ -2209,13 +2342,9 @@ static sbsv_status sbsv_parse_row_for_schema(
                     );
                     free(detail_copy);
                 }
-                free(key);
-                free(value);
                 sbsv_row_free(row);
                 return convert_status;
             }
-            free(key);
-            free(value);
             matched = 1;
             break;
         }
@@ -2841,6 +2970,14 @@ long long sbsv_row_get_int(const sbsv_row* row, const char* key, int* valid) {
         *valid = 1;
     }
     return value->data.int_value;
+}
+
+const char* sbsv_row_get_big_int(const sbsv_row* row, const char* key) {
+    const sbsv_value* value = sbsv_row_get(row, key);
+    if (value == NULL || value->type != SBSV_VALUE_BIG_INT) {
+        return NULL;
+    }
+    return value->data.string_value;
 }
 
 double sbsv_row_get_float(const sbsv_row* row, const char* key, int* valid) {

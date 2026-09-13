@@ -919,6 +919,62 @@ static int test_schema_validation_v020(void) {
     return failed;
 }
 
+static int test_parser_big_int(void) {
+    sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_DEFAULT);
+    const sbsv_row* row;
+    const sbsv_value* value;
+    int failed = 0;
+
+    failed |= assert_true(parser != NULL, "parser should be created");
+    failed |= assert_true(sbsv_parser_add_schema(parser, "[data] [value: int]") == SBSV_OK, "add big integer schema");
+    failed |= assert_true(
+        sbsv_parser_loads(parser, "[data] [value 9223372036854775808]\n") == SBSV_OK,
+        "parse integer outside long long range"
+    );
+
+    if (!failed) {
+        row = sbsv_parser_row_at(parser, 0);
+        value = sbsv_row_get(row, "value");
+        failed |= assert_true(value != NULL && value->type == SBSV_VALUE_BIG_INT, "large integer should retain its decimal representation");
+        failed |= assert_str_eq(sbsv_row_get_big_int(row, "value"), "9223372036854775808", "large integer value");
+    }
+
+    sbsv_parser_free(parser);
+    return failed;
+}
+
+static int test_strict_parser_syntax(void) {
+    sbsv_token_list tokens;
+    sbsv_parser* parser;
+    int failed = 0;
+
+    memset(&tokens, 0, sizeof(tokens));
+    failed |= assert_true(
+        sbsv_tokenize_line("[data]] [value 1]", &tokens) == SBSV_OK,
+        "public tokenizer should retain best-effort unmatched closing behavior"
+    );
+    sbsv_free_token_list(&tokens);
+
+    parser = sbsv_parser_new(SBSV_PARSER_DEFAULT);
+    failed |= assert_true(parser != NULL, "parser should be created");
+    failed |= assert_true(sbsv_parser_add_schema(parser, "[data] [value: float]") == SBSV_OK, "add strict parser schema");
+    failed |= assert_true(
+        sbsv_parser_loads(parser, "[data]] [value 1]\n") == SBSV_ERR_INVALID_ARG,
+        "parser should reject unmatched closing brackets"
+    );
+    sbsv_parser_free(parser);
+
+    parser = sbsv_parser_new(SBSV_PARSER_DEFAULT);
+    failed |= assert_true(parser != NULL, "parser should be created");
+    failed |= assert_true(sbsv_parser_add_schema(parser, "[data] [value: float]") == SBSV_OK, "add float schema");
+    failed |= assert_true(
+        sbsv_parser_loads(parser, "[data] [value nan(payload)]\n") == SBSV_ERR_INVALID_ARG,
+        "extended C float syntax should fail"
+    );
+    sbsv_parser_free(parser);
+    return failed;
+}
+
 int main(void) {
 
     assert_no_error(test_escape_roundtrip(), "test_escape_roundtrip");
@@ -945,6 +1001,8 @@ int main(void) {
     assert_no_error(test_parser_ignore_prefix_and_detached_line(), "test_parser_ignore_prefix_and_detached_line");
     assert_no_error(test_body_parser(), "test_body_parser");
     assert_no_error(test_schema_validation_v020(), "test_schema_validation_v020");
+    assert_no_error(test_parser_big_int(), "test_parser_big_int");
+    assert_no_error(test_strict_parser_syntax(), "test_strict_parser_syntax");
 
     printf("sbsv C tests passed\n");
     return 0;

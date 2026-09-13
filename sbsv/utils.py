@@ -82,6 +82,8 @@ def _is_valid_quoted(s: str) -> bool:
 def unescape_str(s: str) -> str:
     strict = False
     stripped = s.strip()
+    if not stripped.startswith('"') and "\\" not in s:
+        return s
     if stripped.startswith('"'):
         if len(stripped) < 2 or not stripped.endswith('"'):
             raise ValueError("Invalid quoted string: unterminated quote")

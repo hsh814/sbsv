@@ -1,8 +1,19 @@
-from typing import List, Dict, Tuple, TextIO, Callable, Any, Optional, Set
-import queue
-import re
-from .utils import unescape_str
 import enum
+import heapq
+import re
+from typing import Any, Callable, Dict, List, Optional, Set, TextIO, Tuple
+
+from .utils import unescape_str
+
+try:
+    from . import _native
+except ImportError:
+    _native = None
+
+
+def native_available() -> bool:
+    return _native is not None
+
 
 NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
@@ -181,6 +192,7 @@ class SbsvDataType:
     type: str
     nullable: bool
     converter: Callable[[str], Any]
+    is_list: bool
     sub_type: List["SbsvDataType"]
 
     def __init__(
@@ -202,6 +214,7 @@ class SbsvDataType:
             validate_name(name_with_tag, "schema field")
             self.name = name_with_tag
         self.type = type
+        self.is_list = SbsvDataType.list_sub_type(type) is not None
         self.converter = self.add_converter(type, custom_types or dict())
         self.sub_type = list()
 
@@ -261,11 +274,9 @@ class SbsvDataType:
     def convert(self, value: str) -> Any:
         if value == "" and self.nullable:
             return None
-        if self.converter is not None:
-            if SbsvDataType.list_sub_type(self.type) is None:
-                value = unescape_str(value)
-            return self.converter(value)
-        raise ValueError(f"Unsupported type: {self.type}")
+        if not self.is_list:
+            value = unescape_str(value)
+        return self.converter(value)
 
     def key(self) -> str:
         return self.name_with_tag
@@ -289,14 +300,16 @@ class SchemaBody:
     ):
         if schema_body is None and tokens is None:
             raise ValueError("schema_body or tokens is required")
-        self.original = schema_body
         self.schema = list()
         if custom_types is None:
             custom_types = dict()
         if tokens is None:
+            if schema_body is None:
+                raise ValueError("schema_body or tokens is required")
             tokens = lexer.tokenize(schema_body, strict=True)
-        if self.original is None:
-            self.original = SchemaBody.format_tokens(tokens)
+        self.original = (
+            schema_body if schema_body is not None else SchemaBody.format_tokens(tokens)
+        )
         for token in tokens:
             self.schema.append(self.parse_schema_token(token, custom_types))
 
@@ -333,15 +346,15 @@ class SchemaBody:
                 key, value = lexer.token_split_default(elem)
                 if key == "":
                     raise ValueError(f"Invalid data token [{elem}]: empty name")
-                if not schema_type.check_name(key):
+                if schema_type.name != key:
                     continue
-                if value == "" and not schema_type.check_nullable():
+                if value == "" and not schema_type.nullable:
                     raise ValueError(
                         f"Invalid data token [{elem}]: empty value for "
                         f"non-nullable key '{schema_type.name}'"
                     )
                 try:
-                    result[schema_type.key()] = schema_type.convert(value)
+                    result[schema_type.name_with_tag] = schema_type.convert(value)
                 except Exception as e:
                     raise ValueError(
                         f"Invalid value for key '{schema_type.name}' "
@@ -442,6 +455,7 @@ class Schema:
 
 
 class IgnorePrefix:
+    original: str
     tokens: List[Tuple[str, Optional[SbsvDataType]]]
     save_ignored: bool
 
@@ -451,6 +465,7 @@ class IgnorePrefix:
         save_ignored: bool = False,
         custom_types: Optional[Dict[str, Callable[[str], Any]]] = None,
     ):
+        self.original = prefix
         tokens = lexer.tokenize(prefix, strict=True)
         if len(tokens) == 0:
             raise ValueError(f"Invalid ignore prefix {prefix}: too short")
@@ -537,10 +552,11 @@ class parser:
     group_end: Dict[str, str]
     result: dict
 
-    def __init__(self, ignore_unknown: bool = True):
+    def __init__(self, ignore_unknown: bool = True, use_native: bool = True):
         self.schema = dict()
         self.schema_prefixes = set()
         self.ignore_unknown = ignore_unknown
+        self.use_native = use_native
         self.ignored_prefix = None
         self.custom_types = dict()
         self.data = list()
@@ -551,7 +567,7 @@ class parser:
 
     # New parser with same schema
     def clone(self) -> "parser":
-        result = parser(self.ignore_unknown)
+        result = parser(self.ignore_unknown, self.use_native)
         result.schema = self.schema.copy()
         result.schema_prefixes = self.schema_prefixes.copy()
         result.groups = self.groups.copy()
@@ -607,9 +623,8 @@ class parser:
         return schema_name in self.schema_prefixes
 
     def _extract_schema_name_fast(self, line: str) -> Tuple[Optional[str], bool, bool]:
-        ignored_prefix_len = 0
-        if self.ignored_prefix is not None:
-            ignored_prefix_len = len(self.ignored_prefix.tokens)
+        ignored = self.ignored_prefix
+        ignored_prefix_len = 0 if ignored is None else len(ignored.tokens)
 
         token_index = 0
         schema_parts: List[str] = []
@@ -658,7 +673,8 @@ class parser:
                     if not token:
                         continue
                     if token_index < ignored_prefix_len:
-                        expected, schema_type = self.ignored_prefix.tokens[token_index]
+                        assert ignored is not None
+                        expected, schema_type = ignored.tokens[token_index]
                         if schema_type is None and token != expected:
                             return None, False, False
                         token_index += 1
@@ -809,6 +825,35 @@ class parser:
                 # Else, it did not meet the end schema
                 self.group_start[schema.name] = cur_id
 
+    def _can_use_native(self, content: Optional[str] = None) -> bool:
+        if not self.use_native or _native is None or len(self.custom_types) > 0:
+            return False
+        return content is None or "\0" not in content
+
+    def _try_load_native(self, content: str) -> bool:
+        native = _native
+        if native is None or not self._can_use_native(content):
+            return False
+        ignored_prefix = None
+        save_ignored = False
+        ignored = self.ignored_prefix
+        if ignored is not None:
+            ignored_prefix = ignored.original
+            save_ignored = ignored.save_ignored
+        try:
+            rows = native.parse_rows(
+                content,
+                [schema.original for schema in self.schema.values()],
+                self.ignore_unknown,
+                ignored_prefix,
+                save_ignored,
+            )
+        except (ValueError, UnicodeError):
+            return False
+        for schema_name, row in rows:
+            self.append_row_to_data(SbsvData(schema_name, row, -1))
+        return True
+
     def parse_line_detached(
         self, line: str, line_number: Optional[int] = None
     ) -> Optional[SbsvData]:
@@ -853,14 +898,19 @@ class parser:
         self.append_row_to_data(sbsv_data)
 
     def load(self, fp: TextIO) -> dict:
+        if self._can_use_native() and hasattr(fp, "read"):
+            content = fp.read()
+            if isinstance(content, str):
+                return self.loads(content)
         for line_number, line in enumerate(fp, start=1):
             self.parse_line(line, line_number)
         self.post_process()
         return self.result
 
     def loads(self, s: str) -> dict:
-        for line_number, line in enumerate(s.split("\n"), start=1):
-            self.parse_line(line, line_number)
+        if not self._try_load_native(s):
+            for line_number, line in enumerate(s.split("\n"), start=1):
+                self.parse_line(line, line_number)
         self.post_process()
         return self.result
 
@@ -872,7 +922,7 @@ class parser:
     ) -> List[SbsvData]:
         if schemas is None:
             return self.data
-        pq = queue.PriorityQueue()
+        pq = list()
         for schema in schemas:
             if Schema.need_parsing(schema):
                 schema = Schema(schema, custom_types=self.custom_types).name
@@ -881,14 +931,14 @@ class parser:
             cur_schema = self.schema[schema]
             if len(cur_schema.get_data()) == 0:
                 continue
-            pq.put((cur_schema.get_data()[0].get_id(), cur_schema, 0))
+            heapq.heappush(pq, (cur_schema.get_data()[0].get_id(), cur_schema, 0))
         result = list()
-        while not pq.empty():
-            value, cur_schema, elem = pq.get()
+        while pq:
+            _, cur_schema, elem = heapq.heappop(pq)
             result.append(cur_schema.get_data()[elem])
             if elem < len(cur_schema.get_data()) - 1:
                 next_value = cur_schema.get_data()[elem + 1].get_id()
-                pq.put((next_value, cur_schema, elem + 1))
+                heapq.heappush(pq, (next_value, cur_schema, elem + 1))
         return result
 
     def get_result_by_index(

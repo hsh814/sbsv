@@ -10,7 +10,7 @@ extern "C" {
 
 #define SBSV_VERSION_MAJOR 0
 #define SBSV_VERSION_MINOR 2
-#define SBSV_VERSION_PATCH 2
+#define SBSV_VERSION_PATCH 3
 
 typedef enum {
     SBSV_OK = 0,
@@ -30,7 +30,8 @@ typedef enum {
     SBSV_VALUE_BOOL = 3,
     SBSV_VALUE_STRING = 4,
     SBSV_VALUE_LIST = 5,
-    SBSV_VALUE_CUSTOM = 6
+    SBSV_VALUE_CUSTOM = 6,
+    SBSV_VALUE_BIG_INT = 7
 } sbsv_value_type;
 
 typedef enum {
@@ -96,6 +97,7 @@ sbsv_status sbsv_escape_str(const char* input, char** output);
 sbsv_status sbsv_unescape_str(const char* input, char** output);
 
 sbsv_status sbsv_tokenize_line(const char* line, sbsv_token_list* out_tokens);
+sbsv_status sbsv_tokenize_line_strict(const char* line, sbsv_token_list* out_tokens);
 void sbsv_free_token_list(sbsv_token_list* tokens);
 void sbsv_free_string(char* value);
 
@@ -197,6 +199,7 @@ void sbsv_free_group_indices(sbsv_index_range* ranges);
 const sbsv_value* sbsv_row_get(const sbsv_row* row, const char* key);
 const char* sbsv_row_get_string(const sbsv_row* row, const char* key);
 long long sbsv_row_get_int(const sbsv_row* row, const char* key, int* valid);
+const char* sbsv_row_get_big_int(const sbsv_row* row, const char* key);
 double sbsv_row_get_float(const sbsv_row* row, const char* key, int* valid);
 int sbsv_row_get_bool(const sbsv_row* row, const char* key, int* valid);
 const sbsv_value_list* sbsv_row_get_list(const sbsv_row* row, const char* key);

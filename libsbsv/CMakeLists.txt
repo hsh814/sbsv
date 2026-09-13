@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(sbsv VERSION 0.2.2 LANGUAGES C)
+project(sbsv VERSION 0.2.3 LANGUAGES C)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)

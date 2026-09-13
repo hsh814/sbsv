@@ -1,6 +1,8 @@
 build
 dist
 *.egg-info
+*.so
+*.pyd
 __pycache__
 .env
 .venv

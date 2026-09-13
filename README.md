@@ -8,9 +8,26 @@ Human readable, easy to write (you can write it without any dependencies: simple
 python3 -m pip install sbsv
 ```
 
-## C library (experimental)
+## Native acceleration and C library
 
-[libsbsv](./libsbsv) is a C library for parsing SBSV files. It provides a C API for loading and querying SBSV data, and can be used in C/C++ projects.
+The Python package builds an optional CPython extension backed by
+[libsbsv](./libsbsv). `parser.loads()` and `parser.load()` use it automatically
+for built-in types while preserving the existing `SbsvData` result API. Custom
+types and inputs unsupported by the native path fall back to the pure Python
+parser.
+
+```python
+sbsv.native_available()        # True when the extension was built
+parser = sbsv.parser()         # native acceleration when available
+parser = sbsv.parser(use_native=False)  # force the pure Python parser
+```
+
+A source installation attempts to compile the extension and remains usable
+without a C compiler because the extension is optional. Native `load()` reads
+the supplied text stream in one operation; use `use_native=False` when input
+must be consumed line by line.
+
+`libsbsv` also provides a standalone C API for C and C++ projects.
 
 ## Use
 You can read this log-like data:
