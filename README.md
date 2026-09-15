@@ -11,10 +11,11 @@ python3 -m pip install sbsv
 ## Native acceleration and C library
 
 The Python package builds an optional CPython extension backed by
-[libsbsv](./libsbsv). `parser.loads()` and `parser.load()` use it automatically
-for built-in types while preserving the existing `SbsvData` result API. Custom
-types and inputs unsupported by the native path fall back to the pure Python
-parser.
+[libsbsv](./libsbsv). `parser.loads()`, `parser.load()`, and
+`parser.parse_line_detached()` use it automatically while preserving the
+existing `SbsvData` result API. Schemas are compiled once per parser. Built-in
+fields stay entirely in C; only values declared with a Python custom type call
+its converter.
 
 ```python
 sbsv.native_available()        # True when the extension was built
@@ -252,9 +253,12 @@ use index
 ```
 
 
-### Primitive types
-Primitive types are `str`, `int`, `float`, `bool`, `null`.
-Schema types are checked when `add_schema()` is called. Unknown types, including unknown list subtypes, raise `ValueError`.
+### Built-in types
+Built-in types are `str`, `int`, `hex`, `float`, `bool`, and `null`. `hex`
+produces an arbitrary-precision Python integer and also works in lists:
+`[addresses: list[hex]]`. No registration or Python callback is required.
+Schema types are checked when `add_schema()` is called. Unknown types,
+including unknown list subtypes, raise `ValueError`.
 
 ### Complex types
 
@@ -283,27 +287,29 @@ parser.add_schema("[data] [token] [id: int] [actual: list[str]]")
 ```
 
 ### Custom types
-You can define your own types by providing a converter function that takes a string and returns a value (x: str -> custom_type).
+Register a converter only for types that do not have a built-in representation.
+The converter takes a string and returns the desired Python value:
 
 ```python
 parser = sbsv.parser()
+parser.add_custom_type("severity", lambda value: value.upper())
+parser.add_schema("[event] [address: hex] [level: severity]")
 
-# Define a custom type "hex" to parse hexadecimal numbers
-parser.add_custom_type("hex", lambda x: int(x, 16))
-
-# Use the custom type in schema
-parser.add_schema("[data] [id: hex] [val: hex]")
-
-result = parser.loads("""
-[data] [id ff] [val deadbeef]
-""")
-
-# result["data"][0]["id"] == 255
-# result["data"][0]["val"] == 3735928559
+result = parser.loads("[event] [address deadbeef] [level warning]\n")
+result["event"][0]["address"] == 3735928559
+result["event"][0]["level"] == "WARNING"
 ```
+
+With native acceleration, tokenization, schema matching, built-in conversion,
+and row construction remain in C. The Python converter runs only for fields
+whose declared type is `severity`; the presence of that field does not move the
+schema or the rest of the input to the Python parser. Custom values are
+collected first and converted after native parsing, so converters are not
+called twice if native parsing must retry through the compatibility path.
 
 Notes:
 - Register custom types before adding any schema. `add_custom_type()` raises `ValueError` if a schema already exists.
+- Built-in names cannot be replaced by custom converters.
 - Schemas that reference an unregistered custom type raise `ValueError`.
 - Custom types are local to each parser instance. Registering a custom type on one parser does not affect other parsers in the same process.
 

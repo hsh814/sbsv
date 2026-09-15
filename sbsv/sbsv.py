@@ -16,6 +16,7 @@ def native_available() -> bool:
 
 
 NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+BUILTIN_TYPES = frozenset(("str", "int", "float", "bool", "null", "hex"))
 
 
 def validate_name(name: str, context: str):
@@ -258,6 +259,8 @@ class SbsvDataType:
             return SbsvDataType.to_bool
         if type == "null":
             return SbsvDataType.to_null
+        if type == "hex":
+            return lambda value: int(value, 16)
         # Complex types
         sub_type = SbsvDataType.list_sub_type(type)
         if sub_type is not None:
@@ -545,6 +548,7 @@ class parser:
     schema_prefixes: Set[str]
     ignore_unknown: bool
     ignored_prefix: Optional[IgnorePrefix]
+    schema_roots: Set[str]
     custom_types: Dict[str, Callable[[str], Any]]
     data: List[SbsvData]
     groups: Dict[str, Tuple[Schema, Schema, List[Tuple[int, int]]]]
@@ -557,6 +561,7 @@ class parser:
         self.schema_prefixes = set()
         self.ignore_unknown = ignore_unknown
         self.use_native = use_native
+        self.schema_roots = set()
         self.ignored_prefix = None
         self.custom_types = dict()
         self.data = list()
@@ -564,15 +569,18 @@ class parser:
         self.groups = dict()
         self.group_start = dict()
         self.group_end = dict()
+        self._native_backend = None
 
     # New parser with same schema
     def clone(self) -> "parser":
         result = parser(self.ignore_unknown, self.use_native)
         result.schema = self.schema.copy()
         result.schema_prefixes = self.schema_prefixes.copy()
+        result.schema_roots = self.schema_roots.copy()
         result.groups = self.groups.copy()
         result.ignored_prefix = self.ignored_prefix
         result.custom_types = self.custom_types.copy()
+        result._native_backend = None
         return result
 
     @staticmethod
@@ -621,6 +629,21 @@ class parser:
         if not ambiguous_sub_schema:
             return False
         return schema_name in self.schema_prefixes
+
+    def _has_unknown_schema_root(self, line: str) -> bool:
+        if self.ignored_prefix is not None:
+            return False
+        start = 0
+        line_length = len(line)
+        while start < line_length and line[start].isspace():
+            start += 1
+        if start == line_length or line[start] != "[":
+            return False
+        end = line.find("]", start + 1)
+        if end < 0:
+            return False
+        key, has_value = lexer.token_key_and_has_value(line[start + 1 : end])
+        return key == "" or has_value or key not in self.schema_roots
 
     def _extract_schema_name_fast(self, line: str) -> Tuple[Optional[str], bool, bool]:
         ignored = self.ignored_prefix
@@ -737,18 +760,27 @@ class parser:
         self._raise_if_schema_conflicts(sc.name)
         self.schema[sc.name] = sc
         parts = sc.name.split("$")
+        self.schema_roots.add(sc.name.split("$", 1)[0])
         for i in range(1, len(parts)):
             self.schema_prefixes.add("$".join(parts[:i]))
+        self._native_backend = None
         return self
 
     def ignore_prefix(self, prefix: str, save_ignored: bool = False):
         self._raise_if_schema_exists("ignore_prefix")
         self.ignored_prefix = IgnorePrefix(prefix, save_ignored, self.custom_types)
+        self._native_backend = None
         return self
 
     def add_custom_type(self, type_name: str, type_function: Callable[[str], Any]):
         self._raise_if_schema_exists("add_custom_type")
+        validate_name(type_name, "custom type")
+        if type_name in BUILTIN_TYPES:
+            raise ValueError(f"Cannot replace built-in type '{type_name}'")
+        if not callable(type_function):
+            raise TypeError("custom type converter must be callable")
         self.custom_types[type_name] = type_function
+        self._native_backend = None
         return self
 
     def add_group(self, group_name: str, start_schema: str, end_schema: str):
@@ -826,35 +858,43 @@ class parser:
                 self.group_start[schema.name] = cur_id
 
     def _can_use_native(self, content: Optional[str] = None) -> bool:
-        if not self.use_native or _native is None or len(self.custom_types) > 0:
+        if not self.use_native or _native is None:
             return False
         return content is None or "\0" not in content
+
+    def _get_native_backend(self):
+        if self._native_backend is None:
+            native = _native
+            if native is None:
+                raise RuntimeError("native parser is unavailable")
+            ignored_prefix = None
+            save_ignored = False
+            ignored = self.ignored_prefix
+            if ignored is not None:
+                ignored_prefix = ignored.original
+                save_ignored = ignored.save_ignored
+            self._native_backend = native.compile_parser(
+                [schema.original for schema in self.schema.values()],
+                self.custom_types,
+                self.ignore_unknown,
+                ignored_prefix,
+                save_ignored,
+            )
+        return self._native_backend
 
     def _try_load_native(self, content: str) -> bool:
         native = _native
         if native is None or not self._can_use_native(content):
             return False
-        ignored_prefix = None
-        save_ignored = False
-        ignored = self.ignored_prefix
-        if ignored is not None:
-            ignored_prefix = ignored.original
-            save_ignored = ignored.save_ignored
         try:
-            rows = native.parse_rows(
-                content,
-                [schema.original for schema in self.schema.values()],
-                self.ignore_unknown,
-                ignored_prefix,
-                save_ignored,
-            )
-        except (ValueError, UnicodeError):
+            rows = native.parse_rows(self._get_native_backend(), content)
+        except native.NativeParseError:
             return False
         for schema_name, row in rows:
             self.append_row_to_data(SbsvData(schema_name, row, -1))
         return True
 
-    def parse_line_detached(
+    def _parse_line_python(
         self, line: str, line_number: Optional[int] = None
     ) -> Optional[SbsvData]:
         line = line.strip()
@@ -863,15 +903,18 @@ class parser:
         schema_name = None
         try:
             if self.ignore_unknown:
-                (
-                    schema_name,
-                    ambiguous_sub_schema,
-                    reliable_schema_name,
-                ) = self._extract_schema_name_fast(line)
-                if reliable_schema_name and not self._schema_name_may_match(
-                    schema_name, ambiguous_sub_schema
-                ):
+                if self._has_unknown_schema_root(line):
                     return None
+                if self.ignored_prefix is not None:
+                    (
+                        schema_name,
+                        ambiguous_sub_schema,
+                        reliable_schema_name,
+                    ) = self._extract_schema_name_fast(line)
+                    if reliable_schema_name and not self._schema_name_may_match(
+                        schema_name, ambiguous_sub_schema
+                    ):
+                        return None
             tokens = lexer.tokenize(line, strict=True)
             ignored = dict()
             if self.ignored_prefix is not None:
@@ -891,6 +934,24 @@ class parser:
                 parser._build_parse_error_message(e, line_number, schema_name, line)
             ) from e
 
+    def parse_line_detached(
+        self, line: str, line_number: Optional[int] = None
+    ) -> Optional[SbsvData]:
+        native = _native
+        if native is not None and self._can_use_native(line):
+            try:
+                parsed = native.parse_line(
+                    self._get_native_backend(), line, line_number or 0
+                )
+            except native.NativeParseError:
+                pass
+            else:
+                if parsed is None:
+                    return None
+                schema_name, row = parsed
+                return SbsvData(schema_name, row, -1)
+        return self._parse_line_python(line, line_number)
+
     def parse_line(self, line: str, line_number: Optional[int] = None):
         sbsv_data = self.parse_line_detached(line, line_number)
         if sbsv_data is None:
@@ -909,8 +970,20 @@ class parser:
 
     def loads(self, s: str) -> dict:
         if not self._try_load_native(s):
-            for line_number, line in enumerate(s.split("\n"), start=1):
-                self.parse_line(line, line_number)
+            line_start = 0
+            line_number = 1
+            while True:
+                line_end = s.find("\n", line_start)
+                if line_end < 0:
+                    row = self._parse_line_python(s[line_start:], line_number)
+                    if row is not None:
+                        self.append_row_to_data(row)
+                    break
+                row = self._parse_line_python(s[line_start:line_end], line_number)
+                if row is not None:
+                    self.append_row_to_data(row)
+                line_start = line_end + 1
+                line_number += 1
         self.post_process()
         return self.result
 

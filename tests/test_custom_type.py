@@ -3,9 +3,8 @@ import sbsv
 
 
 class TestCustomType(unittest.TestCase):
-    def test_custom_type_hex(self):
+    def test_builtin_hex(self):
         p = sbsv.parser()
-        p.add_custom_type("hex", lambda x: int(x, 16))
         p.add_schema("[data] [id: hex] [vals: list[hex]]")
         data = "[data] [id ff] [vals [a] [b] [10]]\n"
         result = p.loads(data)
@@ -14,28 +13,34 @@ class TestCustomType(unittest.TestCase):
 
     def test_custom_types_are_parser_local(self):
         p1 = sbsv.parser()
-        p1.add_custom_type("hex", lambda x: int(x, 16))
-        p1.add_schema("[data] [id: hex]")
+        p1.add_custom_type("custom", lambda x: int(x, 16))
+        p1.add_schema("[data] [id: custom]")
 
         p2 = sbsv.parser()
         with self.assertRaises(ValueError):
-            p2.add_schema("[data] [id: hex]")
+            p2.add_schema("[data] [id: custom]")
 
         p3 = sbsv.parser()
-        p3.add_custom_type("hex", lambda x: f"custom-{x}")
-        p3.add_schema("[data] [id: hex]")
+        p3.add_custom_type("custom", lambda x: f"custom-{x}")
+        p3.add_schema("[data] [id: custom]")
 
         self.assertEqual(p1.loads("[data] [id ff]\n")["data"][0]["id"], 255)
         self.assertEqual(p3.loads("[data] [id ff]\n")["data"][0]["id"], "custom-ff")
 
-    def test_body_parser_custom_types_are_local(self):
+    def test_body_parser_builtin_and_custom_types(self):
         parser = sbsv.body_parser(
-            "[id: hex]", custom_types={"hex": lambda x: int(x, 16)}
+            "[id: hex] [label: custom]",
+            custom_types={"custom": lambda x: x.upper()},
         )
-        self.assertEqual(parser.loads("[id ff]"), {"id": 255})
+        self.assertEqual(parser.loads("[id ff] [label ok]"), {"id": 255, "label": "OK"})
 
         with self.assertRaises(ValueError):
-            sbsv.body_parser("[id: hex]")
+            sbsv.body_parser("[id: custom]")
+
+    def test_builtin_replacement_rejected(self):
+        p = sbsv.parser()
+        with self.assertRaises(ValueError):
+            p.add_custom_type("hex", lambda x: int(x, 16))
 
     def test_custom_type_late_registration_rejected(self):
         p = sbsv.parser()

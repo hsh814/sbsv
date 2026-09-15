@@ -2,6 +2,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -317,7 +318,7 @@ void sbsv_value_clear(sbsv_value* value) {
         return;
     }
 
-    if (value->type == SBSV_VALUE_STRING || value->type == SBSV_VALUE_BIG_INT) {
+    if (value->type == SBSV_VALUE_STRING || value->type == SBSV_VALUE_BIG_INT || value->type == SBSV_VALUE_BIG_HEX) {
         free(value->data.string_value);
     }
 
@@ -433,6 +434,27 @@ sbsv_parser* sbsv_parser_new(sbsv_parser_flags flags) {
     return parser;
 }
 
+void sbsv_parser_clear_rows(sbsv_parser* parser) {
+    size_t i;
+
+    if (parser == NULL) {
+        return;
+    }
+
+    for (i = 0; i < parser->row_count; ++i) {
+        sbsv_row_free(parser->rows[i]);
+    }
+    parser->row_count = 0;
+
+    for (i = 0; i < parser->schema_count; ++i) {
+        parser->schemas[i].row_count = 0;
+    }
+    for (i = 0; i < parser->group_count; ++i) {
+        parser->groups[i].range_count = 0;
+        parser->groups[i].start_index = -1;
+    }
+}
+
 void sbsv_parser_free(sbsv_parser* parser) {
     size_t i;
 
@@ -460,9 +482,7 @@ void sbsv_parser_free(sbsv_parser* parser) {
     }
     free(parser->ignored_prefix);
 
-    for (i = 0; i < parser->row_count; ++i) {
-        sbsv_row_free(parser->rows[i]);
-    }
+    sbsv_parser_clear_rows(parser);
     free(parser->rows);
 
     free(parser->last_error);
@@ -751,6 +771,15 @@ static sbsv_custom_type* sbsv_find_custom_type_in_array(sbsv_custom_type* custom
     return NULL;
 }
 
+static int sbsv_type_is_builtin(const char* type_name) {
+    return strcmp(type_name, "int") == 0
+        || strcmp(type_name, "float") == 0
+        || strcmp(type_name, "str") == 0
+        || strcmp(type_name, "bool") == 0
+        || strcmp(type_name, "null") == 0
+        || strcmp(type_name, "hex") == 0;
+}
+
 static int sbsv_type_is_supported(sbsv_custom_type* custom_types, size_t custom_type_count, const char* type_name) {
     size_t len;
     char* subtype;
@@ -759,9 +788,7 @@ static int sbsv_type_is_supported(sbsv_custom_type* custom_types, size_t custom_
     if (type_name == NULL || type_name[0] == '\0') {
         return 0;
     }
-    if (strcmp(type_name, "int") == 0 || strcmp(type_name, "float") == 0 ||
-        strcmp(type_name, "str") == 0 || strcmp(type_name, "bool") == 0 ||
-        strcmp(type_name, "null") == 0) {
+    if (sbsv_type_is_builtin(type_name)) {
         return 1;
     }
     len = strlen(type_name);
@@ -1191,6 +1218,10 @@ sbsv_status sbsv_parser_add_custom_type(
         sbsv_parser_set_error(parser, "Invalid custom type name '%s': use only [A-Za-z0-9_-]", type_name);
         return SBSV_ERR_INVALID_ARG;
     }
+    if (sbsv_type_is_builtin(type_name)) {
+        sbsv_parser_set_error(parser, "Cannot replace built-in type '%s'", type_name);
+        return SBSV_ERR_INVALID_ARG;
+    }
 
     existing = sbsv_find_custom_type(parser, type_name);
     if (existing != NULL) {
@@ -1385,6 +1416,10 @@ sbsv_status sbsv_body_parser_add_custom_type(
     }
     if (!sbsv_validate_name(type_name)) {
         sbsv_body_parser_set_error(parser, "Invalid custom type name '%s': use only [A-Za-z0-9_-]", type_name);
+        return SBSV_ERR_INVALID_ARG;
+    }
+    if (sbsv_type_is_builtin(type_name)) {
+        sbsv_body_parser_set_error(parser, "Cannot replace built-in type '%s'", type_name);
         return SBSV_ERR_INVALID_ARG;
     }
 
@@ -1915,6 +1950,48 @@ static sbsv_status sbsv_parse_value(
         out_value->data.int_value = parsed;
         free(decoded);
         return SBSV_OK;
+    }
+
+    if (strcmp(type_name, "hex") == 0) {
+        unsigned long long parsed;
+        errno = 0;
+        if (value[0] == '-') {
+            long long signed_parsed = strtoll(value, &end_ptr, 16);
+            if (errno == 0 && end_ptr != value && *end_ptr == '\0') {
+                out_value->type = SBSV_VALUE_INT;
+                out_value->data.int_value = signed_parsed;
+                free(decoded);
+                return SBSV_OK;
+            }
+        } else {
+            parsed = strtoull(value, &end_ptr, 16);
+            if (errno == 0 && end_ptr != value && *end_ptr == '\0') {
+                if (parsed <= (unsigned long long)LLONG_MAX) {
+                    out_value->type = SBSV_VALUE_INT;
+                    out_value->data.int_value = (long long)parsed;
+                } else {
+                    out_value->type = SBSV_VALUE_UINT;
+                    out_value->data.uint_value = parsed;
+                }
+                free(decoded);
+                return SBSV_OK;
+            }
+        }
+        if (errno == ERANGE && end_ptr != value && *end_ptr == '\0') {
+            char* big_hex = decoded;
+            if (big_hex == NULL) {
+                big_hex = sbsv_strdup_local(value);
+                if (big_hex == NULL) {
+                    return SBSV_ERR_ALLOC;
+                }
+            }
+            out_value->type = SBSV_VALUE_BIG_HEX;
+            out_value->data.string_value = big_hex;
+            return SBSV_OK;
+        }
+        sbsv_parser_set_error(parser, "Invalid hex value: %s", value);
+        free(decoded);
+        return SBSV_ERR_INVALID_ARG;
     }
 
     if (strcmp(type_name, "float") == 0) {
@@ -2955,6 +3032,20 @@ const char* sbsv_row_get_string(const sbsv_row* row, const char* key) {
     return value->data.string_value;
 }
 
+unsigned long long sbsv_row_get_uint(const sbsv_row* row, const char* key, int* valid) {
+    const sbsv_value* value = sbsv_row_get(row, key);
+    if (value == NULL || value->type != SBSV_VALUE_UINT) {
+        if (valid != NULL) {
+            *valid = 0;
+        }
+        return 0;
+    }
+    if (valid != NULL) {
+        *valid = 1;
+    }
+    return value->data.uint_value;
+}
+
 long long sbsv_row_get_int(const sbsv_row* row, const char* key, int* valid) {
     const sbsv_value* value;
 
@@ -2974,7 +3065,8 @@ long long sbsv_row_get_int(const sbsv_row* row, const char* key, int* valid) {
 
 const char* sbsv_row_get_big_int(const sbsv_row* row, const char* key) {
     const sbsv_value* value = sbsv_row_get(row, key);
-    if (value == NULL || value->type != SBSV_VALUE_BIG_INT) {
+    if (value == NULL ||
+        (value->type != SBSV_VALUE_BIG_INT && value->type != SBSV_VALUE_BIG_HEX)) {
         return NULL;
     }
     return value->data.string_value;

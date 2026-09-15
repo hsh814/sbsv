@@ -49,14 +49,30 @@ class TestNativeBackend(unittest.TestCase):
 
         self.assertEqual(row["value"], 123)
 
-    def test_native_backend_falls_back_for_custom_types(self):
+    def test_native_backend_uses_custom_converter_only_for_custom_fields(self):
+        calls = []
         parser = sbsv.parser()
-        parser.add_custom_type("hex", lambda value: int(value, 16))
-        parser.add_schema("[data] [value: hex]")
+        parser.add_custom_type(
+            "custom", lambda value: calls.append(value) or value.upper()
+        )
+        parser.add_schema("[data] [address: hex] [value: custom]")
 
-        row = parser.loads("[data] [value ff]\n")["data"][0]
+        row = parser.loads("[data] [address ff] [value abc]\n")["data"][0]
 
-        self.assertEqual(row["value"], 255)
+        self.assertEqual(row["address"], 255)
+        self.assertEqual(row["value"], "ABC")
+        self.assertEqual(calls, ["abc"])
+
+    def test_native_retry_does_not_repeat_custom_converter(self):
+        calls = []
+        parser = sbsv.parser()
+        parser.add_custom_type("custom", lambda value: calls.append(value) or value)
+        parser.add_schema("[data] [value: custom] [number: int]")
+
+        row = parser.loads("[data] [value abc] [number ١٢٣]\n")["data"][0]
+
+        self.assertEqual(row.data, {"value": "abc", "number": 123})
+        self.assertEqual(calls, ["abc"])
 
     def test_backends_reject_unmatched_closing_bracket(self):
         for use_native in (True, False):

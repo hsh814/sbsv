@@ -281,6 +281,41 @@ static int test_parser_custom_type_and_registration_order(void) {
     return failed;
 }
 
+static int test_parser_builtin_hex(void) {
+    sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_DEFAULT);
+    const sbsv_row* row;
+    const sbsv_value* wide;
+    int failed = 0;
+    int valid = 0;
+
+    failed |= assert_true(parser != NULL, "parser should be created");
+    failed |= assert_true(
+        sbsv_parser_add_schema(parser, "[d] [small: hex] [wide: hex]") == SBSV_OK,
+        "add built-in hex schema"
+    );
+    failed |= assert_true(
+        sbsv_parser_loads(parser, "[d] [small ff] [wide ffffffffffffffff]\n") == SBSV_OK,
+        "parse built-in hex values"
+    );
+    if (!failed) {
+        row = sbsv_parser_row_at(parser, 0);
+        failed |= assert_true(
+            sbsv_row_get_int(row, "small", &valid) == 255 && valid,
+            "small hex should use signed storage"
+        );
+        wide = sbsv_row_get(row, "wide");
+        failed |= assert_true(
+            wide != NULL && wide->type == SBSV_VALUE_UINT
+                && sbsv_row_get_uint(row, "wide", &valid) == 0xffffffffffffffffULL
+                && valid,
+            "wide hex should use unsigned storage"
+        );
+    }
+
+    sbsv_parser_free(parser);
+    return failed;
+}
+
 static int test_parser_rejects_late_or_unknown_custom_types(void) {
     sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_DEFAULT);
     int failed = 0;
@@ -292,6 +327,10 @@ static int test_parser_rejects_late_or_unknown_custom_types(void) {
 
     parser = sbsv_parser_new(SBSV_PARSER_DEFAULT);
     failed |= assert_true(parser != NULL, "parser should be recreated");
+    failed |= assert_true(
+        sbsv_parser_add_custom_type(parser, "hex", custom_hex, NULL) == SBSV_ERR_INVALID_ARG,
+        "built-in type replacement should fail"
+    );
     failed |= assert_true(sbsv_parser_add_schema(parser, "[d] [v: hex4]") == SBSV_ERR_INVALID_ARG, "unknown custom type should fail during schema registration");
     failed |= assert_true(sbsv_parser_add_schema(parser, "[d] [v: list[hex4]]") == SBSV_ERR_INVALID_ARG, "unknown list subtype should fail during schema registration");
     sbsv_parser_free(parser);
@@ -984,6 +1023,7 @@ int main(void) {
     assert_no_error(test_parser_basic(), "test_parser_basic");
     assert_no_error(test_parser_nullable_and_list(), "test_parser_nullable_and_list");
     assert_no_error(test_parser_custom_type_and_registration_order(), "test_parser_custom_type_and_registration_order");
+    assert_no_error(test_parser_builtin_hex(), "test_parser_builtin_hex");
     assert_no_error(test_parser_rejects_late_or_unknown_custom_types(), "test_parser_rejects_late_or_unknown_custom_types");
     assert_no_error(test_parser_duplicating_names_with_tags(), "test_parser_duplicating_names_with_tags");
     assert_no_error(test_parser_name_matching_ignores_unknown_in_order(), "test_parser_name_matching_ignores_unknown_in_order");

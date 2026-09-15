@@ -1,3 +1,17 @@
+## Unreleased
+
+### Added
+- Built-in `hex` and `list[hex]` conversion in Python and `libsbsv`, including
+  unsigned 64-bit and arbitrary-precision values without Python callbacks.
+- Native parsing for schemas that contain Python custom types; callbacks run
+  only for fields declared with those types.
+
+### Changed
+- Reuse compiled native schemas across bulk and detached-line parsing.
+- Defer Python custom conversion until structural native parsing succeeds.
+- Avoid a second native pass when bulk parsing falls back to Python.
+- Reduce pure-Python fallback scanning and avoid materializing every input line.
+
 ## v0.2.3
 
 ### Added

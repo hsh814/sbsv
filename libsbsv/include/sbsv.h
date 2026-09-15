@@ -31,7 +31,9 @@ typedef enum {
     SBSV_VALUE_STRING = 4,
     SBSV_VALUE_LIST = 5,
     SBSV_VALUE_CUSTOM = 6,
-    SBSV_VALUE_BIG_INT = 7
+    SBSV_VALUE_BIG_INT = 7,
+    SBSV_VALUE_BIG_HEX = 8,
+    SBSV_VALUE_UINT = 9
 } sbsv_value_type;
 
 typedef enum {
@@ -51,6 +53,7 @@ typedef void (*sbsv_custom_free_fn)(void* ptr);
 struct sbsv_value {
     sbsv_value_type type;
     union {
+        unsigned long long uint_value;
         long long int_value;
         double float_value;
         int bool_value;
@@ -163,6 +166,7 @@ sbsv_status sbsv_parser_parse_line_detached(
 sbsv_status sbsv_parser_loads(sbsv_parser* parser, const char* content);
 sbsv_status sbsv_parser_load_file(sbsv_parser* parser, FILE* fp);
 sbsv_status sbsv_parser_finish(sbsv_parser* parser);
+void sbsv_parser_clear_rows(sbsv_parser* parser);
 
 size_t sbsv_parser_row_count(const sbsv_parser* parser);
 const sbsv_row* sbsv_parser_row_at(const sbsv_parser* parser, size_t index);
@@ -198,6 +202,7 @@ void sbsv_free_group_indices(sbsv_index_range* ranges);
 
 const sbsv_value* sbsv_row_get(const sbsv_row* row, const char* key);
 const char* sbsv_row_get_string(const sbsv_row* row, const char* key);
+unsigned long long sbsv_row_get_uint(const sbsv_row* row, const char* key, int* valid);
 long long sbsv_row_get_int(const sbsv_row* row, const char* key, int* valid);
 const char* sbsv_row_get_big_int(const sbsv_row* row, const char* key);
 double sbsv_row_get_float(const sbsv_row* row, const char* key, int* valid);
