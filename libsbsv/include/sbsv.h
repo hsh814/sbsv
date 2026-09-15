@@ -9,8 +9,8 @@ extern "C" {
 #endif
 
 #define SBSV_VERSION_MAJOR 0
-#define SBSV_VERSION_MINOR 2
-#define SBSV_VERSION_PATCH 3
+#define SBSV_VERSION_MINOR 3
+#define SBSV_VERSION_PATCH 0
 
 typedef enum {
     SBSV_OK = 0,
