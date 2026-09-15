@@ -1,6 +1,7 @@
-## Unreleased
+## v0.3.0
 
 ### Added
+- `libsbsv` integration for faster parsing.
 - Built-in `hex` and `list[hex]` conversion in Python and `libsbsv`, including
   unsigned 64-bit and arbitrary-precision values without Python callbacks.
 - Native parsing for schemas that contain Python custom types; callbacks run
@@ -11,6 +12,11 @@
 - Defer Python custom conversion until structural native parsing succeeds.
 - Avoid a second native pass when bulk parsing falls back to Python.
 - Reduce pure-Python fallback scanning and avoid materializing every input line.
+
+### Breaking changes
+- Now hex is a built-in type with support for unsigned 64-bit and arbitrary-precision values.
+- You cannot add custom types with the same name as built-in types: hex will raise a `ValueError`.
+
 
 ## v0.2.3
 

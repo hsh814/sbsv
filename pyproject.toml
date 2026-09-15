@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta:__legacy__"
 
 [project]
 name = "sbsv"
-version = "0.2.3"
+version = "0.3.0"
 authors = [
   { name = "Seungheon Han", email = "shhan814@gmail.com" },
 ]
