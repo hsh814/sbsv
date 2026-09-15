@@ -1,3 +1,24 @@
+## v0.3.1
+
+### Changed
+- Tokenize into one packed pointer-and-byte allocation with a direct ordinary-line
+  scan instead of per-character growth and one allocation per token.
+- Reject unknown root schemas before tokenization when `ignore_unknown` is enabled.
+- Construct native `SbsvData` rows directly and cache interned schema/field names.
+
+### Fixed
+- Make `clone()` configuration and result state independent.
+- Clear parser rows before schemas during destruction, preventing field-name
+  use-after-free.
+- Preserve parsing of SBSV rows preceded by timestamps or other unbracketed text.
+
+### Breaking changes
+- `load()` and `loads()` replace prior rows and group state instead of accumulating
+  results from earlier calls. Use incremental `parse_line()` when appending is intended.
+- `SbsvData` is now a `dict` subclass; `.data` remains an alias to the same mapping.
+- The C `sbsv_token_list` layout now includes its packed-allocation owner. Recompile
+  consumers and release token lists only through `sbsv_free_token_list()`.
+
 ## v0.3.0
 
 ### Added

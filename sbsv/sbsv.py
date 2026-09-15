@@ -149,30 +149,31 @@ class lexer:
         return lexer.token_split(token, ":")
 
 
-class SbsvData:
+class SbsvData(dict):
+    __slots__ = ("schema_name", "id")
+
     schema_name: str
-    data: Dict[str, Any]
     id: int
 
-    def __init__(self, schema_name: str, data: Dict[str, Any], id: int):
+    def __init__(
+        self,
+        schema_name: str,
+        data: Optional[Dict[str, Any]] = None,
+        id: int = -1,
+    ):
+        super().__init__(data or {})
         self.schema_name = schema_name
-        self.data = data
         self.id = id
 
-    def __getitem__(self, key: str) -> Any:
-        return self.data[key]
-
-    def __setitem__(self, key: str, value: Any):
-        self.data[key] = value
-
-    def __delitem__(self, key: str):
-        del self.data[key]
-
-    def __contains__(self, key: str) -> bool:
-        return key in self.data
+    @property
+    def data(self) -> "SbsvData":
+        return self
 
     def __str__(self) -> str:
-        return f"[schema {self.schema_name}] [id {self.id}] [data {self.data}]"
+        return (
+            f"[schema {self.schema_name}] [id {self.id}] "
+            f"[data {dict.__repr__(self)}]"
+        )
 
     def __repr__(self) -> str:
         return f"SbsvData({self.__str__()})"
@@ -571,16 +572,20 @@ class parser:
         self.group_end = dict()
         self._native_backend = None
 
-    # New parser with same schema
+    # New parser with the same configuration and independent result state.
     def clone(self) -> "parser":
         result = parser(self.ignore_unknown, self.use_native)
-        result.schema = self.schema.copy()
-        result.schema_prefixes = self.schema_prefixes.copy()
-        result.schema_roots = self.schema_roots.copy()
-        result.groups = self.groups.copy()
-        result.ignored_prefix = self.ignored_prefix
-        result.custom_types = self.custom_types.copy()
-        result._native_backend = None
+        for type_name, converter in self.custom_types.items():
+            result.add_custom_type(type_name, converter)
+        if self.ignored_prefix is not None:
+            result.ignore_prefix(
+                self.ignored_prefix.original,
+                self.ignored_prefix.save_ignored,
+            )
+        for schema in self.schema.values():
+            result.add_schema(schema.original)
+        for group_name, (start_schema, end_schema, _) in self.groups.items():
+            result.add_group(group_name, start_schema.name, end_schema.name)
         return result
 
     @staticmethod
@@ -835,6 +840,16 @@ class parser:
             else:
                 self.result[key] = self.schema[key].get_data()
 
+    def _reset_results(self):
+        self.data = list()
+        self.result = dict()
+        for schema in self.schema.values():
+            schema.data = list()
+        for _, _, indices in self.groups.values():
+            indices.clear()
+        for schema_name in self.group_start:
+            self.group_start[schema_name] = -1
+
     def append_row_to_data(self, sbsv_data: SbsvData):
         cur_id = self.get_global_id()
         sbsv_data.set_id(cur_id)
@@ -876,6 +891,7 @@ class parser:
             self._native_backend = native.compile_parser(
                 [schema.original for schema in self.schema.values()],
                 self.custom_types,
+                SbsvData,
                 self.ignore_unknown,
                 ignored_prefix,
                 save_ignored,
@@ -890,8 +906,8 @@ class parser:
             rows = native.parse_rows(self._get_native_backend(), content)
         except native.NativeParseError:
             return False
-        for schema_name, row in rows:
-            self.append_row_to_data(SbsvData(schema_name, row, -1))
+        for row in rows:
+            self.append_row_to_data(row)
         return True
 
     def _parse_line_python(
@@ -948,8 +964,7 @@ class parser:
             else:
                 if parsed is None:
                     return None
-                schema_name, row = parsed
-                return SbsvData(schema_name, row, -1)
+                return parsed
         return self._parse_line_python(line, line_number)
 
     def parse_line(self, line: str, line_number: Optional[int] = None):
@@ -963,12 +978,14 @@ class parser:
             content = fp.read()
             if isinstance(content, str):
                 return self.loads(content)
+        self._reset_results()
         for line_number, line in enumerate(fp, start=1):
             self.parse_line(line, line_number)
         self.post_process()
         return self.result
 
     def loads(self, s: str) -> dict:
+        self._reset_results()
         if not self._try_load_native(s):
             line_start = 0
             line_number = 1

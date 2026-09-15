@@ -13,9 +13,10 @@ python3 -m pip install sbsv
 The Python package builds an optional CPython extension backed by
 [libsbsv](./libsbsv). `parser.loads()`, `parser.load()`, and
 `parser.parse_line_detached()` use it automatically while preserving the
-existing `SbsvData` result API. Schemas are compiled once per parser. Built-in
-fields stay entirely in C; only values declared with a Python custom type call
-its converter.
+existing `SbsvData` result API. Schemas are compiled once per parser, and the
+extension constructs `SbsvData` dictionary subclasses directly instead of
+building an intermediate `(schema_name, dict)` result. Built-in fields stay
+entirely in C; only values declared with a Python custom type call its converter.
 
 ```python
 sbsv.native_available()        # True when the extension was built
@@ -26,9 +27,13 @@ parser = sbsv.parser(use_native=False)  # force the pure Python parser
 A source installation attempts to compile the extension and remains usable
 without a C compiler because the extension is optional. Native `load()` reads
 the supplied text stream in one operation; use `use_native=False` when input
-must be consumed line by line.
+must be consumed line by line. Each `load()` or `loads()` call replaces that
+parser's previous rows and group state. `parse_line()` remains the incremental,
+append-oriented API. `clone()` copies parser configuration but owns independent
+schemas, rows, and group state.
 
-`libsbsv` also provides a standalone C API for C and C++ projects.
+`SbsvData` is a `dict` subclass; `row.data` is a compatibility alias for the row
+itself. `libsbsv` also provides a standalone C API for C and C++ projects.
 
 ## Use
 You can read this log-like data:

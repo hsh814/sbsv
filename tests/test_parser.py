@@ -132,3 +132,29 @@ class TestParser(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             parser.loads("[unknown] [broken\n")
+
+    def test_clone_has_independent_schema_and_group_state(self):
+        original = sbsv.parser()
+        original.add_schema("[group] [begin]")
+        original.add_schema("[item] [value: int]")
+        original.add_group("items", "group$begin", "group$begin")
+        original.loads("[group] [begin]\n[item] [value 1]\n")
+
+        clone = original.clone()
+        clone.loads("[group] [begin]\n[item] [value 2]\n")
+
+        self.assertEqual(original.get_result()["item"][0]["value"], 1)
+        self.assertEqual(clone.get_result()["item"][0]["value"], 2)
+        self.assertEqual(original.get_group_index("items"), [(0, 1)])
+        self.assertEqual(clone.get_group_index("items"), [(0, 1)])
+
+    def test_loads_replaces_previous_results(self):
+        parser = sbsv.parser()
+        parser.add_schema("[item] [value: int]")
+
+        first = parser.loads("[item] [value 1]\n")
+        second = parser.loads("[item] [value 2]\n")
+
+        self.assertEqual(first["item"][0]["value"], 1)
+        self.assertEqual(second["item"][0]["value"], 2)
+        self.assertEqual(len(second["item"]), 1)

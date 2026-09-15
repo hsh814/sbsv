@@ -8,8 +8,19 @@
 #define NATIVE_PARSER_CAPSULE "sbsv._native.Parser"
 
 typedef struct {
+    const char* c_schema_name;
+    PyObject* schema_name;
+    PyObject** field_names;
+    size_t field_count;
+} native_schema_cache;
+
+typedef struct {
     sbsv_parser* parser;
     PyObject* custom_types;
+    PyObject* row_type;
+    native_schema_cache* schema_caches;
+    size_t schema_cache_count;
+    size_t schema_cache_capacity;
 } native_parser;
 typedef struct {
     PyObject* converter;
@@ -140,57 +151,130 @@ static PyObject* value_to_python(const sbsv_value* value) {
     return NULL;
 }
 
-static PyObject* row_to_python(const sbsv_row* row) {
-    PyObject* schema_name;
-    PyObject* fields;
+static void native_parser_clear_schema_caches(native_parser* state) {
+    size_t i;
+    if (state == NULL) {
+        return;
+    }
+    for (i = 0; i < state->schema_cache_count; ++i) {
+        native_schema_cache* cache = &state->schema_caches[i];
+        size_t field_index;
+        Py_XDECREF(cache->schema_name);
+        for (field_index = 0; field_index < cache->field_count; ++field_index) {
+            Py_XDECREF(cache->field_names[field_index]);
+        }
+        PyMem_Free(cache->field_names);
+    }
+    PyMem_Free(state->schema_caches);
+    state->schema_caches = NULL;
+    state->schema_cache_count = 0;
+    state->schema_cache_capacity = 0;
+}
+
+static native_schema_cache* native_parser_get_schema_cache(
+    native_parser* state,
+    const sbsv_row* row
+) {
+    native_schema_cache* cache;
+    size_t i;
+
+    for (i = 0; i < state->schema_cache_count; ++i) {
+        if (state->schema_caches[i].c_schema_name == row->schema_name) {
+            return &state->schema_caches[i];
+        }
+    }
+    if (state->schema_cache_count == state->schema_cache_capacity) {
+        size_t next_capacity = state->schema_cache_capacity == 0
+            ? 4
+            : state->schema_cache_capacity * 2;
+        native_schema_cache* grown = (native_schema_cache*)PyMem_Realloc(
+            state->schema_caches,
+            next_capacity * sizeof(native_schema_cache)
+        );
+        if (grown == NULL) {
+            PyErr_NoMemory();
+            return NULL;
+        }
+        state->schema_caches = grown;
+        state->schema_cache_capacity = next_capacity;
+    }
+
+    cache = &state->schema_caches[state->schema_cache_count];
+    memset(cache, 0, sizeof(*cache));
+    cache->c_schema_name = row->schema_name;
+    cache->schema_name = PyUnicode_InternFromString(row->schema_name);
+    if (cache->schema_name == NULL) {
+        return NULL;
+    }
+    cache->field_names = (PyObject**)PyMem_Calloc(
+        row->field_count,
+        sizeof(PyObject*)
+    );
+    if (row->field_count > 0 && cache->field_names == NULL) {
+        Py_DECREF(cache->schema_name);
+        cache->schema_name = NULL;
+        PyErr_NoMemory();
+        return NULL;
+    }
+    cache->field_count = row->field_count;
+    for (i = 0; i < row->field_count; ++i) {
+        cache->field_names[i] = PyUnicode_InternFromString(
+            row->fields[i].name_with_tag
+        );
+        if (cache->field_names[i] == NULL) {
+            size_t field_index;
+            for (field_index = 0; field_index < i; ++field_index) {
+                Py_DECREF(cache->field_names[field_index]);
+            }
+            PyMem_Free(cache->field_names);
+            Py_DECREF(cache->schema_name);
+            memset(cache, 0, sizeof(*cache));
+            return NULL;
+        }
+    }
+    state->schema_cache_count += 1;
+    return cache;
+}
+
+static PyObject* row_to_python(native_parser* state, const sbsv_row* row) {
+    native_schema_cache* cache;
     PyObject* result;
     size_t i;
 
-    schema_name = PyUnicode_InternFromString(row->schema_name);
-    if (schema_name == NULL) {
+    cache = native_parser_get_schema_cache(state, row);
+    if (cache == NULL) {
         return NULL;
     }
-
-    fields = PyDict_New();
-    if (fields == NULL) {
-        Py_DECREF(schema_name);
+    result = PyObject_CallFunction(
+        state->row_type,
+        "OOn",
+        cache->schema_name,
+        Py_None,
+        (Py_ssize_t)-1
+    );
+    if (result == NULL) {
+        return NULL;
+    }
+    if (!PyDict_Check(result)) {
+        Py_DECREF(result);
+        PyErr_SetString(PyExc_TypeError, "row_type must construct a dict subtype");
         return NULL;
     }
     for (i = 0; i < row->field_count; ++i) {
-        PyObject* field_name = PyUnicode_InternFromString(row->fields[i].name_with_tag);
-        PyObject* field_value;
+        PyObject* field_value = value_to_python(&row->fields[i].value);
         int status;
 
-        if (field_name == NULL) {
-            Py_DECREF(schema_name);
-            Py_DECREF(fields);
-            return NULL;
-        }
-        field_value = value_to_python(&row->fields[i].value);
         if (field_value == NULL) {
-            Py_DECREF(field_name);
-            Py_DECREF(schema_name);
-            Py_DECREF(fields);
+            Py_DECREF(result);
             return NULL;
         }
-        status = PyDict_SetItem(fields, field_name, field_value);
-        Py_DECREF(field_name);
+        status = PyDict_SetItem(result, cache->field_names[i], field_value);
         Py_DECREF(field_value);
         if (status < 0) {
-            Py_DECREF(schema_name);
-            Py_DECREF(fields);
+            Py_DECREF(result);
             return NULL;
         }
     }
-
-    result = PyTuple_New(2);
-    if (result == NULL) {
-        Py_DECREF(schema_name);
-        Py_DECREF(fields);
-        return NULL;
-    }
-    PyTuple_SET_ITEM(result, 0, schema_name);
-    PyTuple_SET_ITEM(result, 1, fields);
     return result;
 }
 
@@ -239,8 +323,10 @@ static void native_parser_capsule_free(PyObject* capsule) {
         PyErr_Clear();
         return;
     }
+    native_parser_clear_schema_caches(state);
     sbsv_parser_free(state->parser);
     Py_XDECREF(state->custom_types);
+    Py_XDECREF(state->row_type);
     PyMem_Free(state);
 }
 
@@ -248,6 +334,7 @@ static PyObject* native_compile_parser(PyObject* self, PyObject* args, PyObject*
     static char* keywords[] = {
         "schemas",
         "custom_types",
+        "row_type",
         "ignore_unknown",
         "ignored_prefix",
         "save_ignored",
@@ -255,6 +342,7 @@ static PyObject* native_compile_parser(PyObject* self, PyObject* args, PyObject*
     };
     PyObject* schemas_object;
     PyObject* custom_types_object;
+    PyObject* row_type;
     PyObject* ignored_prefix_object = Py_None;
     PyObject* schemas = NULL;
     native_parser* state = NULL;
@@ -267,10 +355,11 @@ static PyObject* native_compile_parser(PyObject* self, PyObject* args, PyObject*
     if (!PyArg_ParseTupleAndKeywords(
             args,
             kwargs,
-            "OO|pOp:compile_parser",
+            "OOO|pOp:compile_parser",
             keywords,
             &schemas_object,
             &custom_types_object,
+            &row_type,
             &ignore_unknown,
             &ignored_prefix_object,
             &save_ignored)) {
@@ -278,6 +367,13 @@ static PyObject* native_compile_parser(PyObject* self, PyObject* args, PyObject*
     }
     if (!PyDict_Check(custom_types_object)) {
         PyErr_SetString(PyExc_TypeError, "custom_types must be a dict");
+        return NULL;
+    }
+    if (
+        !PyType_Check(row_type)
+        || !PyType_IsSubtype((PyTypeObject*)row_type, &PyDict_Type)
+    ) {
+        PyErr_SetString(PyExc_TypeError, "row_type must be a dict subtype");
         return NULL;
     }
 
@@ -296,12 +392,15 @@ static PyObject* native_compile_parser(PyObject* self, PyObject* args, PyObject*
         PyMem_Free(state);
         return NULL;
     }
+    Py_INCREF(row_type);
+    state->row_type = row_type;
     state->parser = sbsv_parser_new(
         ignore_unknown ? SBSV_PARSER_DEFAULT : SBSV_PARSER_NO_IGNORE_UNKNOWN
     );
     if (state->parser == NULL) {
         Py_DECREF(schemas);
         Py_DECREF(state->custom_types);
+        Py_DECREF(state->row_type);
         PyMem_Free(state);
         return PyErr_NoMemory();
     }
@@ -377,6 +476,7 @@ static PyObject* native_compile_parser(PyObject* self, PyObject* args, PyObject*
         if (capsule == NULL) {
             sbsv_parser_free(state->parser);
             Py_DECREF(state->custom_types);
+            Py_DECREF(state->row_type);
             PyMem_Free(state);
         }
         return capsule;
@@ -386,6 +486,7 @@ fail:
     Py_DECREF(schemas);
     sbsv_parser_free(state->parser);
     Py_DECREF(state->custom_types);
+    Py_DECREF(state->row_type);
     PyMem_Free(state);
     return NULL;
 }
@@ -430,7 +531,7 @@ static PyObject* native_parse_rows(PyObject* self, PyObject* args) {
         return NULL;
     }
     for (i = 0; i < (Py_ssize_t)sbsv_parser_row_count(state->parser); ++i) {
-        PyObject* row = row_to_python(sbsv_parser_row_at(state->parser, (size_t)i));
+        PyObject* row = row_to_python(state, sbsv_parser_row_at(state->parser, (size_t)i));
         if (row == NULL) {
             Py_DECREF(rows);
             sbsv_parser_clear_rows(state->parser);
@@ -483,7 +584,7 @@ static PyObject* native_parse_line(PyObject* self, PyObject* args) {
     if (row == NULL) {
         Py_RETURN_NONE;
     }
-    result = row_to_python(row);
+    result = row_to_python(state, row);
     sbsv_row_free(row);
     return result;
 }
