@@ -2960,13 +2960,14 @@ sbsv_status sbsv_parser_get_rows_by_index(
     size_t* out_count
 ) {
     const sbsv_schema* found;
-    const sbsv_row** result;
-    size_t i;
-    size_t count;
+    size_t lo, hi, start;
 
     if (parser == NULL || schema == NULL || out_rows == NULL || out_count == NULL) {
         return SBSV_ERR_INVALID_ARG;
     }
+
+    *out_rows = NULL;
+    *out_count = 0;
 
     {
         char* schema_name = NULL;
@@ -2981,23 +2982,35 @@ sbsv_status sbsv_parser_get_rows_by_index(
         return SBSV_ERR_INVALID_ARG;
     }
 
-    result = (const sbsv_row**)malloc(sizeof(sbsv_row*) * found->row_count);
-    if (found->row_count > 0 && result == NULL) {
-        return SBSV_ERR_ALLOC;
+    if (range.start > range.end || found->row_count == 0) {
+        return SBSV_OK;
     }
 
-    count = 0;
-    for (i = 0; i < found->row_count; ++i) {
-        size_t id = found->rows[i]->id;
-        if (id >= range.start && id <= range.end) {
-            result[count] = found->rows[i];
-            count += 1;
+    /* Find the first row at or after the inclusive start. */
+    lo = 0;
+    hi = found->row_count;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (found->rows[mid]->id < range.start) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
         }
     }
+    start = lo;
 
-    *out_rows = result;
-    *out_count = count;
-    return SBSV_OK;
+    /* Compare directly with the end to avoid overflow at SIZE_MAX. */
+    hi = found->row_count;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (found->rows[mid]->id <= range.end) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    *out_count = lo - start;
+    return sbsv_copy_row_refs(found->rows + start, *out_count, out_rows);
 }
 
 sbsv_status sbsv_parser_get_rows(

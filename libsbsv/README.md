@@ -175,6 +175,11 @@ data remains valid after input buffers are released. With
 `SBSV_PARSER_IGNORE_UNKNOWN`, an unregistered root schema is rejected before full
 tokenization.
 
+`sbsv_parser_get_rows_by_index()` uses binary search on the selected schema's row
+IDs and allocates only enough row references for the matches. Its range is
+inclusive at both ends; empty and reversed ranges return no rows. Query time is
+O(log n + k), with O(k) result memory for n schema rows and k matches.
+
 ## Thread Safety And Incremental Parsing
 
 Separate parser instances can be used concurrently from different threads. A single

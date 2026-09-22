@@ -543,6 +543,57 @@ static int test_parser_ordered_query(void) {
     return failed;
 }
 
+static int test_parser_index_boundaries(void) {
+    sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_DEFAULT);
+    const sbsv_row** rows = NULL;
+    size_t count = 0;
+    size_t start, end, i;
+    int failed = 0;
+
+    failed |= assert_true(parser != NULL, "create range parser");
+    failed |= assert_true(sbsv_parser_add_schema(parser, "[graph] [node] [value: int]") == SBSV_OK, "add range schema");
+    failed |= assert_true(sbsv_parser_add_schema(parser, "[other]") == SBSV_OK, "add other schema");
+    failed |= assert_true(sbsv_parser_add_schema(parser, "[empty]") == SBSV_OK, "add empty schema");
+    for (i = 0; i < 40; ++i) {
+        failed |= assert_true(sbsv_parser_parse_line(parser,
+            i % 3 == 1 ? "[graph] [node] [value 1]" : "[other]", i + 1) == SBSV_OK,
+            "append range row");
+    }
+    for (start = 0; start < 43; ++start) {
+        for (end = 0; end < 43; ++end) {
+            sbsv_index_range range = {start, end};
+            size_t expected_count = 0;
+            failed |= assert_true(sbsv_parser_get_rows_by_index(parser,
+                "[graph] [node]", range, &rows, &count) == SBSV_OK, "query inclusive range");
+            for (i = 0; i < 40; ++i) {
+                if (i % 3 == 1 && i >= start && i <= end) {
+                    if (expected_count < count) {
+                        failed |= assert_true(rows[expected_count] == sbsv_parser_row_at(parser, i), "range row identity");
+                    }
+                    ++expected_count;
+                }
+            }
+            failed |= assert_true(count == expected_count, "range row count");
+            sbsv_free_row_ref_array(rows);
+            rows = NULL;
+        }
+    }
+    {
+        sbsv_index_range range = {0, (size_t)-1};
+        failed |= assert_true(sbsv_parser_get_rows_by_index(parser, "graph$node", range,
+            &rows, &count) == SBSV_OK, "range ending at SIZE_MAX");
+        failed |= assert_true(count == 13, "full range row count");
+        sbsv_free_row_ref_array(rows);
+        rows = NULL;
+        failed |= assert_true(sbsv_parser_get_rows_by_index(parser, "empty", range,
+            &rows, &count) == SBSV_OK, "empty schema range");
+        failed |= assert_true(count == 0, "empty schema row count");
+        sbsv_free_row_ref_array(rows);
+    }
+    sbsv_parser_free(parser);
+    return failed;
+}
+
 static int test_parser_get_rows_by_schema(void) {
     sbsv_parser* parser = sbsv_parser_new(SBSV_PARSER_DEFAULT);
     int failed = 0;
@@ -1032,6 +1083,7 @@ int main(void) {
     assert_no_error(test_parser_group_schema_realloc_safety(), "test_parser_group_schema_realloc_safety");
     assert_no_error(test_parser_ordered_query(), "test_parser_ordered_query");
     assert_no_error(test_parser_get_rows_by_schema(), "test_parser_get_rows_by_schema");
+    assert_no_error(test_parser_index_boundaries(), "test_parser_index_boundaries");
     assert_no_error(test_parser_unknown_schema_error_context(), "test_parser_unknown_schema_error_context");
     assert_no_error(test_parser_malformed_unknown_schema_lines(), "test_parser_malformed_unknown_schema_lines");
     assert_no_error(test_parser_error_detail_not_corrupted(), "test_parser_error_detail_not_corrupted");
