@@ -57,8 +57,9 @@ with open("testfile.sbsv", "r") as f:
   result = parser.load(f)
 ```
 
-`parser.load()` returns lists of `SbsvData` rows. Each row supports `row["field"]`
-access, and its `.data` dictionary would look like:
+`parser.load()` returns a dictionary keyed by schema name, with nested dictionaries
+for sub-schemas and lists of `SbsvData` rows at the leaves. Each row supports
+`row["field"]` access, and the result looks like:
 ```
 {
   "meta-data": [{"id": 1, "format": "string"}, {"id": 2, "format": "token"}],
@@ -144,6 +145,10 @@ elems_all = parser.get_result_in_order()
 elems = parser.get_result_in_order(["[data] [string]", "[data] [token]"])
 # You can also use ["data$string", "data$token"]
 ```
+Filtered queries merge the already ordered schema rows. Selecting one nonempty
+schema only copies its row list. The returned list contains the original row
+objects; changing the list does not change the parser's stored lists.
+
 Or, you can get schema id (`data$string` and `data$token`) like this:
 ```python
 sbsv.get_schema_id("node") == "node"
@@ -257,6 +262,11 @@ use index
 4
 ```
 
+`get_result_by_index(schema, (start, end))` includes both endpoints. It uses binary
+search over that schema's row IDs and copies only the matching row references,
+taking O(log n + k) time for n schema rows and k matches. Empty or reversed ranges
+return an empty list. The standalone C range-query API uses the same approach.
+
 
 ### Built-in types
 Built-in types are `str`, `int`, `hex`, `float`, `bool`, and `null`. `hex`
@@ -327,7 +337,7 @@ parser.add_schema("[node] [id: int] [value: int]")
 parser.add_schema("[edge] [src: int] [dst: int] [value: int]")
 result = parser.parse_line_detached("[node] [id 1] [value 2]")
 # result == SbsvData(schema_name="node", data={"id": 1, "value": 2})
-# Note: result is not dict, but SbsvData object.
+# SbsvData is a dict subclass with schema_name and id attributes.
 ```
 This can be useful in cases like parsing log lines one by one, without storing them in memory. 
 
@@ -351,8 +361,10 @@ result = parser.loads("[data] [val [id 1] [value 2]]")
 ```
 If a body parser schema uses custom types, pass them when constructing the body parser:
 ```python
-parser = sbsv.body_parser("[id: hex]", custom_types={"hex": lambda x: int(x, 16)})
-parser.loads("[id ff]") == {"id": 255}
+parser = sbsv.body_parser(
+    "[level: severity]", custom_types={"severity": lambda value: value.upper()}
+)
+parser.loads("[level warning]") == {"level": "WARNING"}
 ```
 
 ### Escape sequences for string

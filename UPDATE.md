@@ -1,3 +1,6 @@
+## v0.3.2
+- Code simplification
+
 ## v0.3.1
 
 ### Changed

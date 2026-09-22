@@ -1,6 +1,7 @@
 import enum
 import heapq
 import re
+from operator import attrgetter
 from typing import Any, Callable, Dict, List, Optional, Set, TextIO, Tuple
 
 from .utils import unescape_str
@@ -433,20 +434,14 @@ class Schema:
     def extract_schema_and_body_tokens(
         tokens: List[str],
     ) -> Tuple[Optional[str], List[str]]:
-        name: Optional[str] = None
-        data: List[str] = list()
-        may_have_sub_schema = True
-        for i in range(len(tokens)):
-            key, has_value = lexer.token_key_and_has_value(tokens[i])
-            if key != "" and not has_value and may_have_sub_schema:
-                if name is None:
-                    name = key
-                else:
-                    name = f"{name}${key}"
-            else:
-                may_have_sub_schema = False
-                data.append(tokens[i])
-        return name, data
+        parts = []
+        for i, token in enumerate(tokens):
+            key, has_value = lexer.token_key_and_has_value(token)
+            if not key or has_value:
+                # Once the body starts, subsequent tokens cannot be schema names.
+                return "$".join(parts) if parts else None, tokens[i:]
+            parts.append(key)
+        return "$".join(parts) if parts else None, []
 
     def parse(self, tokens: List[str]) -> Dict[str, Any]:
         return self.body.parse(tokens)
@@ -1007,78 +1002,52 @@ class parser:
     def get_result(self) -> dict:
         return self.result
 
+    def _resolve_schema(self, schema: str) -> Schema:
+        if Schema.need_parsing(schema):
+            schema = Schema(schema, custom_types=self.custom_types).name
+        if schema not in self.schema:
+            raise ValueError(f"Invalid schema {schema}")
+        return self.schema[schema]
+
     def get_result_in_order(
         self, schemas: Optional[List[str]] = None
     ) -> List[SbsvData]:
         if schemas is None:
             return self.data
-        pq = list()
+        rows = []
         for schema in schemas:
-            if Schema.need_parsing(schema):
-                schema = Schema(schema, custom_types=self.custom_types).name
-            if schema not in self.schema:
-                raise ValueError(f"Invalid schema {schema}")
-            cur_schema = self.schema[schema]
-            if len(cur_schema.get_data()) == 0:
-                continue
-            heapq.heappush(pq, (cur_schema.get_data()[0].get_id(), cur_schema, 0))
-        result = list()
-        while pq:
-            _, cur_schema, elem = heapq.heappop(pq)
-            result.append(cur_schema.get_data()[elem])
-            if elem < len(cur_schema.get_data()) - 1:
-                next_value = cur_schema.get_data()[elem + 1].get_id()
-                heapq.heappush(pq, (next_value, cur_schema, elem + 1))
-        return result
+            data = self._resolve_schema(schema).data
+            if data:
+                rows.append(data)
+        if not rows:
+            return []
+        if len(rows) == 1:
+            return rows[0].copy()
+        return list(heapq.merge(*rows, key=attrgetter("id")))
 
     def get_result_by_index(
         self, schema: str, index: Tuple[int, int]
     ) -> List[SbsvData]:
-        if Schema.need_parsing(schema):
-            schema = Schema(schema, custom_types=self.custom_types).name
-        if schema not in self.schema:
-            raise ValueError(f"Invalid schema {schema}")
-
-        data = self.schema[schema].get_data()
-
-        # Binary search for the start index
-        start = 0
-        end = len(data) - 1
-        start_index = -1
-
-        while start <= end:
-            if end - start < 8:
-                # Just use linear search
-                for i in range(start, end + 1):
-                    if data[i].get_id() >= index[0]:
-                        start_index = i
-                        break
-            mid = (start + end) // 2
-            if data[mid].get_id() >= index[0]:
-                start_index = mid
-                end = mid - 1
-            else:
-                start = mid + 1
-
-        if start_index == -1:
+        data = self._resolve_schema(schema).data
+        if index[0] > index[1]:
             return []
 
-        # Binary search for the end index
-        start = start_index
-        end = len(data) - 1
-        end_index = -1
-
-        while start <= end:
-            if end - start < 8:
-                # Just use linear search
-                for i in range(start, end + 1):
-                    if data[i].get_id() <= index[1]:
-                        end_index = i
-                        break
-            mid = (start + end) // 2
-            if data[mid].get_id() <= index[1]:
-                end_index = mid
-                start = mid + 1
+        # Lower bound: first row with id >= the inclusive start.
+        lo, hi = 0, len(data)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if data[mid].id < index[0]:
+                lo = mid + 1
             else:
-                end = mid - 1
-        return data[start_index : end_index + 1]
+                hi = mid
+        start = lo
+
+        # Upper bound: first row with id > the inclusive end.
+        hi = len(data)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if data[mid].id <= index[1]:
+                lo = mid + 1
+            else:
+                hi = mid
+        return data[start:lo]
